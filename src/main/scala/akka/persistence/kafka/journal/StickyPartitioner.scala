@@ -4,5 +4,6 @@ import kafka.producer.Partitioner
 import kafka.utils.VerifiableProperties
 
 class StickyPartitioner(props: VerifiableProperties) extends Partitioner {
-  def partition(key: Any, numPartitions: Int): Int = 0
+  val partition = props.getInt("partition")
+  def partition(key: Any, numPartitions: Int): Int = partition
 }

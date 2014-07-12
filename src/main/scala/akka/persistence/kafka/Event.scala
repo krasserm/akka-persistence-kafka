@@ -1,4 +1,4 @@
-package akka.persistence.kafka.journal
+package akka.persistence.kafka
 
 import java.io._
 
@@ -15,6 +15,10 @@ trait EventTopicMapper {
 
 class DefaultEventTopicMapper extends EventTopicMapper {
   def topicsFor(event: Event): Seq[String] = List("events")
+}
+
+class EmptyEventTopicMapper extends EventTopicMapper {
+  def topicsFor(event: Event): Seq[String] = Nil
 }
 
 class DefaultEventEncoder(props: VerifiableProperties = null) extends Encoder[Event] {

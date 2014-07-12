@@ -11,6 +11,7 @@ class KafkaJournalSpec extends JournalSpec with KafkaCleanup {
     """
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.local.dir = "target/snapshots"
+      |akka.test.single-expect-default = 10s
     """.stripMargin)
 
   val server = new TestServer()
