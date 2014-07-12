@@ -49,6 +49,7 @@ class KafkaJournal extends SyncWriteJournal with KafkaMetadata with KafkaRecover
 
   override def postStop(): Unit = {
     msgProducer.close()
+    evtProducer.close()
     super.postStop()
   }
 }

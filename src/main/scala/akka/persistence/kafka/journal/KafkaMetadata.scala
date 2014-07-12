@@ -39,11 +39,10 @@ trait KafkaMetadata { this: Actor =>
   }
 
   def leaderFor(topic: String, host: String, port: Int): Option[Broker] = {
-    import ConsumerConfig.DefaultClientId
     import config.journalConsumerConfig._
 
-    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, DefaultClientId)
-    val request = new TopicMetadataRequest(TopicMetadataRequest.CurrentVersion, 0, DefaultClientId, List(topic))
+    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
+    val request = new TopicMetadataRequest(TopicMetadataRequest.CurrentVersion, 0, clientId, List(topic))
     val response = try {
       consumer.send(request)
     } finally {

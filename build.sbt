@@ -8,6 +8,8 @@ scalaVersion := "2.10.4"
 
 resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
+parallelExecution in Test := false
+
 libraryDependencies ++= Seq(
   //
   // Compile dependencies

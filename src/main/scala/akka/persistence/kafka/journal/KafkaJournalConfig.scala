@@ -27,7 +27,7 @@ class KafkaJournalConfig(config: Config) {
 
   val journalConsumerConfig: ConsumerConfig =
     new ConsumerConfig(toProperties(config.getConfig("consumer"),
-      Map("zookeeper.connect" -> zookeeperConfig.zkConnect, "group.id" -> "")))
+      Map("zookeeper.connect" -> zookeeperConfig.zkConnect, "group.id" -> "journal")))
 
   def journalProducerConfig(brokers: List[String]): ProducerConfig =
     new ProducerConfig(toProperties(config.getConfig("producer"),

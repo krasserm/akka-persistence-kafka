@@ -35,7 +35,7 @@ trait KafkaRecovery extends KafkaMetadata { this: KafkaJournal =>
     val adjustedTo = if (max < adjustedNum) adjustedFrom + max - 1L else toSequenceNr
 
     val lastSequenceNr = leaderFor(persistenceId, brokers) match {
-      case None => throw new LeaderNotAvailableException(s"no leader for topic ${persistenceId}")
+      case None => 0L // topic for persistenceId doesn't exist yet
       case Some(Broker(host, port)) =>
         val iter = new PersistentReprIterator(host, port, persistenceId, 0, adjustedFrom - 1L)
         iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(0L) {
@@ -65,7 +65,7 @@ trait KafkaRecovery extends KafkaMetadata { this: KafkaJournal =>
   private class MessageIterator(host: String, port: Int, topic: String, partition: Int, offset: Long) extends Iterator[Message] {
     import config.journalConsumerConfig._
 
-    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, ConsumerConfig.DefaultClientId)
+    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
     var iter = iterator(offset)
     var read = 0
     var nxto = offset
