@@ -22,6 +22,6 @@ libraryDependencies ++= Seq(
   //
   // Test dependencies
   //
-  "com.github.krasserm" %% "akka-persistence-testkit" % "0.4-SNAPSHOT" % "test",
+  "com.github.krasserm" %% "akka-persistence-testkit" % "0.3.4" % "test",
   "commons-io"           % "commons-io"               % "2.4"   % "test"
 )
