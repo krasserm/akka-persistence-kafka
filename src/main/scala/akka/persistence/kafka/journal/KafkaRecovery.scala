@@ -8,11 +8,6 @@ import akka.pattern.ask
 import akka.persistence.PersistentRepr
 import akka.util.Timeout
 
-import kafka.api._
-import kafka.common.LeaderNotAvailableException
-import kafka.consumer._
-import kafka.message._
-
 trait KafkaRecovery extends KafkaMetadata { this: KafkaJournal =>
   import KafkaMetadata._
   import Watermarks._
@@ -37,7 +32,7 @@ trait KafkaRecovery extends KafkaMetadata { this: KafkaJournal =>
     val lastSequenceNr = leaderFor(persistenceId, brokers) match {
       case None => 0L // topic for persistenceId doesn't exist yet
       case Some(Broker(host, port)) =>
-        val iter = new PersistentReprIterator(host, port, persistenceId, 0, adjustedFrom - 1L)
+        val iter = persistentIterator(host, port, persistenceId, adjustedFrom - 1L)
         iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(0L) {
           case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
         }
@@ -46,58 +41,9 @@ trait KafkaRecovery extends KafkaMetadata { this: KafkaJournal =>
     watermarks ! LastSequenceNr(persistenceId, lastSequenceNr)
   }
 
-  private class PersistentReprIterator(host: String, port: Int, topic: String, partition: Int, offset: Long) extends Iterator[PersistentRepr] {
-    val iterator = new MessageIterator(host, port, topic, partition, offset)
-
-    override def next(): PersistentRepr = {
-      val m = iterator.next()
-      val payload = m.payload
-      val payloadBytes = Array.ofDim[Byte](payload.limit())
-
-      payload.get(payloadBytes)
-      serialization.deserialize(payloadBytes, classOf[PersistentRepr]).get
-    }
-
-    override def hasNext: Boolean =
-      iterator.hasNext
-  }
-
-  private class MessageIterator(host: String, port: Int, topic: String, partition: Int, offset: Long) extends Iterator[Message] {
-    import config.journalConsumerConfig._
-
-    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
-    var iter = iterator(offset)
-    var read = 0
-    var nxto = offset
-
-    def iterator(offset: Long): Iterator[MessageAndOffset] = {
-      val request = new FetchRequestBuilder().addFetch(topic, partition, offset, fetchMessageMaxBytes).build()
-      val response = consumer.fetch(request)
-      response.messageSet(topic, partition).iterator
-    }
-
-    def next(): Message = {
-      val mo = iter.next()
-      read += 1
-      nxto = mo.nextOffset
-      mo.message
-    }
-
-    @annotation.tailrec
-    final def hasNext: Boolean =
-      if (iter.hasNext) {
-        true
-      } else if (read == 0) {
-        close()
-        false
-      } else {
-        iter = iterator(nxto)
-        read = 0
-        hasNext
-      }
-
-    def close(): Unit = {
-      consumer.close()
+  def persistentIterator(host: String, port: Int, topic: String, offset: Long): Iterator[PersistentRepr] = {
+    new KafkaMessageIterator(host, port, topic, 0, offset, config.journalConsumerConfig).map { m =>
+      serialization.deserialize(KafkaMessageIterator.payloadBytes(m), classOf[PersistentRepr]).get
     }
   }
 }

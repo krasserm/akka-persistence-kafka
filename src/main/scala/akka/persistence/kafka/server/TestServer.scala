@@ -15,13 +15,16 @@ object TestServerConfig extends TestServerConfig(ConfigFactory.load().getConfig(
 
 class TestServerConfig(config: Config) {
   object zookeeper {
-    val port = config.getInt("zookeeper.port")
-    val dir = config.getString("zookeeper.dir")
+    val port: Int =
+      config.getInt("zookeeper.port")
+
+    val dir: String =
+      config.getString("zookeeper.dir")
   }
 
-  def kafkaConfig: KafkaConfig =
+  val kafka: KafkaConfig =
     new KafkaConfig(toProperties(config.getConfig("kafka"),
-      Map("zookeeper.connect" -> s"localhost:${zookeeper.port}", "hostname" -> "localhost")))
+      Map("zookeeper.connect" -> s"localhost:${zookeeper.port}", "host.name" -> "localhost")))
 
   private def toProperties(config: Config, extra: Map[String, String] = Map.empty): Properties = {
     val properties = new Properties()
@@ -59,7 +62,7 @@ class TestZookeeperServer {
 
 class TestKafkaServer {
   private val server: KafkaServer =
-    new KafkaServer(TestServerConfig.kafkaConfig)
+    new KafkaServer(TestServerConfig.kafka)
 
   server.startup()
 
