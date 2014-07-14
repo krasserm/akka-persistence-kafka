@@ -11,7 +11,13 @@ import kafka.server._
 
 import org.apache.curator.test.TestingServer
 
-object TestServerConfig extends TestServerConfig(ConfigFactory.load().getConfig("test-server"))
+object TestServerConfig {
+  def load(): TestServerConfig =
+    load("application")
+
+  def load(resource: String): TestServerConfig =
+    new TestServerConfig(ConfigFactory.load(resource).getConfig("test-server"))
+}
 
 class TestServerConfig(config: Config) {
   object zookeeper {
@@ -41,9 +47,9 @@ class TestServerConfig(config: Config) {
   }
 }
 
-class TestServer {
-  val zookeeper = new TestZookeeperServer()
-  val kafka = new TestKafkaServer()
+class TestServer(config: TestServerConfig = TestServerConfig.load()) {
+  val zookeeper = new TestZookeeperServer(config)
+  val kafka = new TestKafkaServer(config)
 
   def stop(): Unit = {
     kafka.stop()
@@ -51,8 +57,8 @@ class TestServer {
   }
 }
 
-class TestZookeeperServer {
-  import TestServerConfig._
+class TestZookeeperServer(config: TestServerConfig) {
+  import config._
 
   private val server: TestingServer =
     new TestingServer(zookeeper.port, new File(zookeeper.dir))
@@ -60,9 +66,9 @@ class TestZookeeperServer {
   def stop(): Unit = server.stop()
 }
 
-class TestKafkaServer {
+class TestKafkaServer(config: TestServerConfig) {
   private val server: KafkaServer =
-    new KafkaServer(TestServerConfig.kafka)
+    new KafkaServer(config.kafka)
 
   server.startup()
 
@@ -71,3 +77,4 @@ class TestKafkaServer {
     server.awaitShutdown()
   }
 }
+

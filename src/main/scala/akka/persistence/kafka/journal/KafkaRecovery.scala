@@ -43,7 +43,7 @@ trait KafkaRecovery extends KafkaMetadata { this: KafkaJournal =>
 
   def persistentIterator(host: String, port: Int, topic: String, offset: Long): Iterator[PersistentRepr] = {
     new KafkaMessageIterator(host, port, topic, 0, offset, config.journalConsumerConfig).map { m =>
-      serialization.deserialize(KafkaMessageIterator.payloadBytes(m), classOf[PersistentRepr]).get
+      serialization.deserialize(KafkaMessage.payloadBytes(m), classOf[PersistentRepr]).get
     }
   }
 }

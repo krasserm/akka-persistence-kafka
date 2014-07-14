@@ -4,7 +4,7 @@ import kafka.api.FetchRequestBuilder
 import kafka.consumer._
 import kafka.message._
 
-object KafkaMessageIterator {
+object KafkaMessage {
   def payloadBytes(m: Message): Array[Byte] = {
     val payload = m.payload
     val payloadBytes = Array.ofDim[Byte](payload.limit())

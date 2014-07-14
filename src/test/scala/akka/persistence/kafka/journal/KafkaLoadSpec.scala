@@ -18,11 +18,12 @@ object KafkaLoadSpec {
       |akka.persistence.snapshot-store.local.dir = "target/snapshots"
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.test.single-expect-default = 10s
-      |kafka-journal.event.producer.producer.type = "sync"
       |kafka-journal.event.producer.request.required.acks = 1
       |kafka-journal.event.producer.topic.mapper.class = "akka.persistence.kafka.EmptyEventTopicMapper"
       |kafka-journal.zookeeper.connection.timeout.ms = 10000
       |kafka-journal.zookeeper.session.timeout.ms = 10000
+      |test-server.zookeeper.dir = target/journal/zookeeper
+      |test-server.kafka.log.dirs = target/journal/kafka
     """.stripMargin)
 
   trait Measure extends { this: Actor ⇒
@@ -69,8 +70,10 @@ object KafkaLoadSpec {
 class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaCleanup {
   import KafkaLoadSpec._
 
-  val server = new TestServer()
-  val config = new KafkaJournalConfig(system.settings.config.getConfig("kafka-journal"))
+  val systemConfig = system.settings.config
+  val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
+  val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
+  val server = new TestServer(serverConfig)
 
   override def afterAll(): Unit = {
     server.stop()

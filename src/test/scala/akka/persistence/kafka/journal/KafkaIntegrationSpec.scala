@@ -21,10 +21,11 @@ object KafkaIntegrationSpec {
       |akka.persistence.snapshot-store.local.dir = "target/snapshots"
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.test.single-expect-default = 10s
-      |kafka-journal.event.producer.producer.type = "sync"
       |kafka-journal.event.producer.request.required.acks = 1
       |kafka-journal.zookeeper.connection.timeout.ms = 10000
       |kafka-journal.zookeeper.session.timeout.ms = 10000
+      |test-server.zookeeper.dir = target/journal/zookeeper
+      |test-server.kafka.log.dirs = target/journal/kafka
     """.stripMargin)
 
   class TestPersistentActor(val persistenceId: String) extends PersistentActor {
@@ -35,11 +36,12 @@ object KafkaIntegrationSpec {
 
 class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaCleanup {
   import KafkaIntegrationSpec._
-  import KafkaMessageIterator._
-  import TestServerConfig._
+  import KafkaMessage._
 
-  val server = new TestServer()
-  val config = new KafkaJournalConfig(system.settings.config.getConfig("kafka-journal"))
+  val systemConfig = system.settings.config
+  val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
+  val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
+  val server = new TestServer(serverConfig)
 
   val serialization = SerializationExtension(system)
   val eventDecoder = new DefaultEventDecoder
@@ -63,14 +65,16 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
     super.afterAll()
   }
 
+  import serverConfig._
+
   def persistent(topic: String): Seq[PersistentRepr] =
-    messages(topic, 0).map(m => serialization.deserialize(KafkaMessageIterator.payloadBytes(m), classOf[PersistentRepr]).get)
+    messages(topic, 0).map(m => serialization.deserialize(payloadBytes(m), classOf[PersistentRepr]).get)
 
   def events(partition: Int): Seq[Event] =
     messages("events", partition).map(m => eventDecoder.fromBytes(payloadBytes(m)))
 
   def messages(topic: String, partition: Int): Seq[Message] =
-    new KafkaMessageIterator(kafka.hostName, kafka.port, topic, partition, 0, config.journalConsumerConfig).toVector
+    new KafkaMessageIterator(kafka.hostName, kafka.port, topic, partition, 0, journalConfig.journalConsumerConfig).toVector
 
   "A Kafka Journal" must {
     "publish all events to the events topic by default" in {

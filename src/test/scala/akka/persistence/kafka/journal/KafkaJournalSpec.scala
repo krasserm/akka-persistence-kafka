@@ -12,11 +12,14 @@ class KafkaJournalSpec extends JournalSpec with KafkaCleanup {
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.local.dir = "target/snapshots"
       |akka.test.single-expect-default = 10s
-      |kafka-journal.event.producer.producer.type = "sync"
       |kafka-journal.event.producer.request.required.acks = 1
+      |test-server.zookeeper.dir = target/journal/zookeeper
+      |test-server.kafka.log.dirs = target/journal/kafka
     """.stripMargin)
 
-  val server = new TestServer()
+  val systemConfig = system.settings.config
+  val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
+  val server = new TestServer(serverConfig)
 
   override protected def afterAll(): Unit = {
     server.stop()
