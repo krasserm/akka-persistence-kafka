@@ -16,11 +16,7 @@ libraryDependencies ++= Seq(
   //
   "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.4",
   "org.apache.curator" % "curator-test" % "2.5.0",
-  "org.apache.kafka"  %% "kafka" % "0.8.1.1" excludeAll(
-    ExclusionRule(organization = "com.sun.jdmk"),
-    ExclusionRule(organization = "com.sun.jmx"),
-    ExclusionRule(organization = "javax.jms")
-  ),
+  "org.apache.kafka"  %% "kafka" % "0.8.1.1",
   //
   // Test dependencies
   //
