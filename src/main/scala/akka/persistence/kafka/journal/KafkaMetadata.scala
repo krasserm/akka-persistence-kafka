@@ -5,6 +5,7 @@ import scala.util._
 import akka.actor.Actor
 
 import kafka.api.TopicMetadataRequest
+import kafka.common.ErrorMapping
 import kafka.consumer._
 import kafka.utils._
 
@@ -40,6 +41,7 @@ trait KafkaMetadata { this: Actor =>
 
   def leaderFor(topic: String, host: String, port: Int): Option[Broker] = {
     import config.journalConsumerConfig._
+    import ErrorMapping._
 
     val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
     val request = new TopicMetadataRequest(TopicMetadataRequest.CurrentVersion, 0, clientId, List(topic))
@@ -49,9 +51,16 @@ trait KafkaMetadata { this: Actor =>
       consumer.close()
     }
 
+    val topicMetadata = response.topicsMetadata(0)
+
+    topicMetadata.errorCode match {
+      case NoError                => // ok
+      case LeaderNotAvailableCode => // no such topic
+      case anError                => maybeThrowException(anError)
+    }
+
     val leaders = for {
-      tmd <- response.topicsMetadata
-      pmd <- tmd.partitionsMetadata if pmd.partitionId == config.partition
+      pmd <- topicMetadata.partitionsMetadata if pmd.partitionId == config.partition
       ldr <- pmd.leader
     } yield Broker(ldr.host, ldr.port)
 

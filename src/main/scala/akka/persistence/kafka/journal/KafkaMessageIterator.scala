@@ -1,6 +1,7 @@
 package akka.persistence.kafka.journal
 
 import kafka.api.FetchRequestBuilder
+import kafka.common.ErrorMapping
 import kafka.consumer._
 import kafka.message._
 
@@ -19,19 +20,21 @@ class KafkaMessageIterator(host: String, port: Int, topic: String, partition: In
 
   val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
   var iter = iterator(offset)
-  var read = 0
-  var nxto = offset
+  var readMessages = 0
+  var nextOffset = offset
 
   def iterator(offset: Long): Iterator[MessageAndOffset] = {
     val request = new FetchRequestBuilder().addFetch(topic, partition, offset, fetchMessageMaxBytes).build()
     val response = consumer.fetch(request)
+
+    ErrorMapping.maybeThrowException(response.errorCode(topic, partition))
     response.messageSet(topic, partition).iterator
   }
 
   def next(): Message = {
     val mo = iter.next()
-    read += 1
-    nxto = mo.nextOffset
+    readMessages += 1
+    nextOffset = mo.nextOffset
     mo.message
   }
 
@@ -39,12 +42,12 @@ class KafkaMessageIterator(host: String, port: Int, topic: String, partition: In
   final def hasNext: Boolean =
     if (iter.hasNext) {
       true
-    } else if (read == 0) {
+    } else if (readMessages == 0) {
       close()
       false
     } else {
-      iter = iterator(nxto)
-      read = 0
+      iter = iterator(nextOffset)
+      readMessages = 0
       hasNext
     }
 
