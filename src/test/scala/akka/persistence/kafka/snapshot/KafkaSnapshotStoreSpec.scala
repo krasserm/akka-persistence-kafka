@@ -1,12 +1,12 @@
-package akka.persistence.kafka.journal
+package akka.persistence.kafka.snapshot
 
 import com.typesafe.config.ConfigFactory
 
-import akka.persistence.journal.JournalSpec
+import akka.persistence.snapshot.SnapshotStoreSpec
 import akka.persistence.kafka.KafkaCleanup
 import akka.persistence.kafka.server._
 
-class KafkaJournalSpec extends JournalSpec with KafkaCleanup {
+class KafkaSnapshotStoreSpec extends SnapshotStoreSpec with KafkaCleanup {
   lazy val config = ConfigFactory.parseString(
     """
       |akka.persistence.journal.plugin = "kafka-journal"

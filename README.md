@@ -277,7 +277,7 @@ Reference configuration
         request.required.acks = 1
     
         # DO NOT CHANGE!
-        partitioner.class = "akka.persistence.kafka.journal.StickyPartitioner"
+        partitioner.class = "akka.persistence.kafka.StickyPartitioner"
     
         # DO NOT CHANGE!
         key.serializer.class = "kafka.serializer.StringEncoder"

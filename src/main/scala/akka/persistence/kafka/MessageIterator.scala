@@ -1,11 +1,11 @@
-package akka.persistence.kafka.journal
+package akka.persistence.kafka
 
 import kafka.api.FetchRequestBuilder
 import kafka.common.ErrorMapping
 import kafka.consumer._
 import kafka.message._
 
-object KafkaMessage {
+object MessageUtil {
   def payloadBytes(m: Message): Array[Byte] = {
     val payload = m.payload
     val payloadBytes = Array.ofDim[Byte](payload.limit())
@@ -15,7 +15,7 @@ object KafkaMessage {
   }
 }
 
-class KafkaMessageIterator(host: String, port: Int, topic: String, partition: Int, offset: Long, consumerConfig: ConsumerConfig) extends Iterator[Message] {
+class MessageIterator(host: String, port: Int, topic: String, partition: Int, offset: Long, consumerConfig: ConsumerConfig) extends Iterator[Message] {
   import consumerConfig._
 
   val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)

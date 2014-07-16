@@ -2,23 +2,40 @@ package akka.persistence.kafka.journal
 
 import scala.collection.immutable.Seq
 
-import akka.actor._
-import akka.persistence.{PersistentId, PersistentConfirmation, PersistentRepr}
+import akka.persistence.{PersistentId, PersistentConfirmation}
 import akka.persistence.journal.SyncWriteJournal
-import akka.persistence.kafka._
 import akka.serialization.SerializationExtension
 
 import kafka.producer._
 
-class KafkaJournal extends SyncWriteJournal with KafkaMetadata with KafkaRecovery {
-  val serialization = SerializationExtension(context.system)
+import scala.concurrent.Future
+import scala.concurrent.duration._
 
-  val msgProducer = new Producer[String, Array[Byte]](config.journalProducerConfig(brokers.map(_.toString)))
-  val evtProducer = new Producer[String, Event](config.eventProducerConfig(brokers.map(_.toString)))
-  val evtTopicMapper = config.eventTopicMapper
+import akka.actor._
+import akka.pattern.ask
+import akka.persistence.PersistentRepr
+import akka.persistence.kafka._
+import akka.util.Timeout
+
+
+class KafkaJournal extends SyncWriteJournal with MetadataConsumer {
+  import Watermarks._
+
+  val serialization = SerializationExtension(context.system)
+  val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
+  val brokers = allBrokers()
 
   val watermarks: ActorRef = context.actorOf(Props[Watermarks])
-  var deletions = Map.empty[String, (Long, Boolean)] // TODO: make persistent
+  // Transient deletions only to pass TCK (persistent not supported)
+  var deletions = Map.empty[String, (Long, Boolean)]
+
+  // --------------------------------------------------------------------------------------
+  //  Journal writes
+  // --------------------------------------------------------------------------------------
+
+  val msgProducer = new Producer[String, Array[Byte]](config.journalProducerConfig(brokers))
+  val evtProducer = new Producer[String, Event](config.eventProducerConfig(brokers))
+  val evtTopicMapper = config.eventTopicMapper
 
   def writeMessages(messages: Seq[PersistentRepr]): Unit = {
     val keyedMsgs = for {
@@ -47,6 +64,45 @@ class KafkaJournal extends SyncWriteJournal with KafkaMetadata with KafkaRecover
   def writeConfirmations(confirmations: Seq[PersistentConfirmation]): Unit =
     throw new UnsupportedOperationException("Channels not supported")
 
+  // --------------------------------------------------------------------------------------
+  //  Journal reads
+  // --------------------------------------------------------------------------------------
+
+  implicit val replayDispatcher = context.system.dispatchers.lookup(config.replayDispatcher)
+
+  def asyncReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] =
+    watermarks.ask(LastSequenceNrRequest(persistenceId))(Timeout(10.seconds)).map {
+      case LastSequenceNr(_, lastSequenceNr) => math.max(lastSequenceNr, fromSequenceNr)
+    }
+
+  def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] =
+    Future(replayMessages(persistenceId, fromSequenceNr, toSequenceNr, max, replayCallback))(replayDispatcher)
+
+  def replayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long, callback: PersistentRepr => Unit): Unit = {
+    val (deletedTo, permanent) = deletions.getOrElse(persistenceId, (0L, false))
+
+    val adjustedFrom = if (permanent) math.max(deletedTo + 1L, fromSequenceNr) else fromSequenceNr
+    val adjustedNum = toSequenceNr - adjustedFrom + 1L
+    val adjustedTo = if (max < adjustedNum) adjustedFrom + max - 1L else toSequenceNr
+
+    val lastSequenceNr = leaderFor(persistenceId, brokers) match {
+      case None => 0L // topic for persistenceId doesn't exist yet
+      case Some(MetadataConsumer.Broker(host, port)) =>
+        val iter = persistentIterator(host, port, persistenceId, adjustedFrom - 1L)
+        iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(0L) {
+          case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
+        }
+    }
+
+    watermarks ! LastSequenceNr(persistenceId, lastSequenceNr)
+  }
+
+  def persistentIterator(host: String, port: Int, topic: String, offset: Long): Iterator[PersistentRepr] = {
+    new MessageIterator(host, port, topic, config.partition, offset, config.consumerConfig).map { m =>
+      serialization.deserialize(MessageUtil.payloadBytes(m), classOf[PersistentRepr]).get
+    }
+  }
+
   override def postStop(): Unit = {
     msgProducer.close()
     evtProducer.close()
@@ -54,12 +110,12 @@ class KafkaJournal extends SyncWriteJournal with KafkaMetadata with KafkaRecover
   }
 }
 
-object Watermarks {
+private object Watermarks {
   case class LastSequenceNr(persistenceId: String, lastSequenceNr: Long)
   case class LastSequenceNrRequest(persistenceId: String)
 }
 
-class Watermarks extends Actor {
+private class Watermarks extends Actor {
   import Watermarks._
 
   var lastSequenceNrs = Map.empty[String, Long]

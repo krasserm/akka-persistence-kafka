@@ -15,15 +15,15 @@ import org.scalatest._
 object KafkaLoadSpec {
   val config = ConfigFactory.parseString(
     """
-      |akka.persistence.snapshot-store.local.dir = "target/snapshots"
       |akka.persistence.journal.plugin = "kafka-journal"
+      |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
       |akka.test.single-expect-default = 10s
       |kafka-journal.event.producer.request.required.acks = 1
       |kafka-journal.event.producer.topic.mapper.class = "akka.persistence.kafka.EmptyEventTopicMapper"
       |kafka-journal.zookeeper.connection.timeout.ms = 10000
       |kafka-journal.zookeeper.session.timeout.ms = 10000
-      |test-server.zookeeper.dir = target/journal/zookeeper
-      |test-server.kafka.log.dirs = target/journal/kafka
+      |test-server.zookeeper.dir = target/test/zookeeper
+      |test-server.kafka.log.dirs = target/test/kafka
     """.stripMargin)
 
   trait Measure extends { this: Actor ⇒

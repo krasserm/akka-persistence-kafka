@@ -1,9 +1,8 @@
 package akka.persistence.kafka.server
 
 import java.io.File
-import java.util.Properties
 
-import scala.collection.JavaConverters._
+import akka.persistence.kafka._
 
 import com.typesafe.config._
 
@@ -29,22 +28,8 @@ class TestServerConfig(config: Config) {
   }
 
   val kafka: KafkaConfig =
-    new KafkaConfig(toProperties(config.getConfig("kafka"),
+    new KafkaConfig(configToProperties(config.getConfig("kafka"),
       Map("zookeeper.connect" -> s"localhost:${zookeeper.port}", "host.name" -> "localhost")))
-
-  private def toProperties(config: Config, extra: Map[String, String] = Map.empty): Properties = {
-    val properties = new Properties()
-
-    config.entrySet.asScala.foreach { entry =>
-      properties.put(entry.getKey, entry.getValue.unwrapped.toString)
-    }
-
-    extra.foreach {
-      case (k, v) => properties.put(k, v)
-    }
-
-    properties
-  }
 }
 
 class TestServer(config: TestServerConfig = TestServerConfig.load()) {

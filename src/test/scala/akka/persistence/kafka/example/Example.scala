@@ -5,7 +5,7 @@ import java.util.Properties
 import scala.collection.immutable.Seq
 
 import akka.actor._
-import akka.persistence.{PersistentRepr, PersistentActor}
+import akka.persistence.{PersistentActor, PersistentRepr, RecoveryFailure, SaveSnapshotSuccess, SnapshotOffer}
 import akka.persistence.kafka.{DefaultEventDecoder, Event, EventTopicMapper}
 import akka.persistence.kafka.server.{TestServerConfig, TestServer}
 import akka.serialization.SerializationExtension
@@ -20,17 +20,27 @@ class ExampleProcessor(val persistenceId: String) extends PersistentActor {
 
   var state: Int = 0
   def receiveCommand: Receive = {
-    case i: Increment => persist(i)(update)
+    case i: Increment =>
+      persist(i)(update)
+    case "snap" =>
+      saveSnapshot(state)
+    case SaveSnapshotSuccess(md) =>
+      println(s"snapshot saved (metadata = ${md})")
   }
 
   def receiveRecover: Receive = {
-    case i: Increment => update(i)
-
+    case i: Increment =>
+      update(i)
+    case SnapshotOffer(md, snapshot: Int) =>
+      state = snapshot
+      println(s"state initialized: ${state} (metadata = ${md})")
+    case RecoveryFailure(e) =>
+      e.printStackTrace()
   }
 
   def update(i: Increment): Unit = {
     state += i.value
-    println(s"state = ${state}")
+    println(s"state updated: ${state}")
   }
 }
 
@@ -50,6 +60,7 @@ object ExampleProcessor extends App {
 
   actorA ! Increment(2)
   actorA ! Increment(3)
+  actorA ! "snap"
 }
 
 object ExampleConsumer extends App {

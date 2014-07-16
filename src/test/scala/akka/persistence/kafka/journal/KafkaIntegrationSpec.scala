@@ -18,14 +18,14 @@ import org.scalatest._
 object KafkaIntegrationSpec {
   val config = ConfigFactory.parseString(
     """
-      |akka.persistence.snapshot-store.local.dir = "target/snapshots"
       |akka.persistence.journal.plugin = "kafka-journal"
+      |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
       |akka.test.single-expect-default = 10s
       |kafka-journal.event.producer.request.required.acks = 1
       |kafka-journal.zookeeper.connection.timeout.ms = 10000
       |kafka-journal.zookeeper.session.timeout.ms = 10000
-      |test-server.zookeeper.dir = target/journal/zookeeper
-      |test-server.kafka.log.dirs = target/journal/kafka
+      |test-server.zookeeper.dir = target/test/zookeeper
+      |test-server.kafka.log.dirs = target/test/kafka
     """.stripMargin)
 
   class TestPersistentActor(val persistenceId: String) extends PersistentActor {
@@ -36,7 +36,7 @@ object KafkaIntegrationSpec {
 
 class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaCleanup {
   import KafkaIntegrationSpec._
-  import KafkaMessage._
+  import MessageUtil._
 
   val systemConfig = system.settings.config
   val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
@@ -74,7 +74,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
     messages("events", partition).map(m => eventDecoder.fromBytes(payloadBytes(m)))
 
   def messages(topic: String, partition: Int): Seq[Message] =
-    new KafkaMessageIterator(kafka.hostName, kafka.port, topic, partition, 0, journalConfig.journalConsumerConfig).toVector
+    new MessageIterator(kafka.hostName, kafka.port, topic, partition, 0, journalConfig.consumerConfig).toVector
 
   "A Kafka Journal" must {
     "publish all events to the events topic by default" in {

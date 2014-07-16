@@ -1,4 +1,4 @@
-package akka.persistence.kafka.journal
+package akka.persistence.kafka
 
 import kafka.producer.Partitioner
 import kafka.utils.VerifiableProperties
