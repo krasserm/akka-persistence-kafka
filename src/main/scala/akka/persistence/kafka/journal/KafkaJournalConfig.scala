@@ -9,9 +9,6 @@ import kafka.producer.ProducerConfig
 import kafka.utils._
 
 class KafkaJournalConfig(config: Config) extends MetadataConsumerConfig(config) {
-  val replayDispatcher: String =
-    config.getString("replay-dispatcher")
-
   val eventTopicMapper: EventTopicMapper =
     Utils.createObject[EventTopicMapper](config.getString("event.producer.topic.mapper.class"))
 

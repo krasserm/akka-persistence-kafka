@@ -17,6 +17,7 @@ object MessageUtil {
 
 class MessageIterator(host: String, port: Int, topic: String, partition: Int, offset: Long, consumerConfig: ConsumerConfig) extends Iterator[Message] {
   import consumerConfig._
+  import ErrorMapping._
 
   val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
   var iter = iterator(offset)
@@ -27,8 +28,10 @@ class MessageIterator(host: String, port: Int, topic: String, partition: Int, of
     val request = new FetchRequestBuilder().addFetch(topic, partition, offset, fetchMessageMaxBytes).build()
     val response = consumer.fetch(request)
 
-    ErrorMapping.maybeThrowException(response.errorCode(topic, partition))
-    response.messageSet(topic, partition).iterator
+    response.errorCode(topic, partition) match {
+      case NoError => response.messageSet(topic, partition).iterator
+      case anError => throw exceptionFor(anError)
+    }
   }
 
   def next(): Message = {

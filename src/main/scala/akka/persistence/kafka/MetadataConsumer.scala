@@ -2,8 +2,6 @@ package akka.persistence.kafka
 
 import scala.util._
 
-import akka.actor.Actor
-
 import kafka.api._
 import kafka.common._
 import kafka.consumer._
@@ -21,20 +19,21 @@ object MetadataConsumer {
   }
 }
 
-trait MetadataConsumer { this: Actor =>
+trait MetadataConsumer {
   import MetadataConsumer._
 
   val config: MetadataConsumerConfig
 
-  def leaderFor(topic: String, brokers: List[Broker]): Option[Broker] = {
-    brokers match {
-      case Nil => None
-      case Broker(host, port) :: brokers =>
-        Try(leaderFor(host, port, topic)) match {
-          case Success(l) => l
-          case Failure(e) => leaderFor(topic, brokers) // failover
-        }
-    }
+  def leaderFor(topic: String, brokers: List[Broker]): Option[Broker] = brokers match {
+    case Nil =>
+      throw new IllegalArgumentException("empty broker list")
+    case Broker(host, port) :: Nil =>
+      leaderFor(host, port, topic)
+    case Broker(host, port) :: brokers =>
+      Try(leaderFor(host, port, topic)) match {
+        case Failure(e) => leaderFor(topic, brokers) // failover
+        case Success(l) => l
+      }
   }
 
   def leaderFor(host: String, port: Int, topic: String): Option[Broker] = {
@@ -48,7 +47,6 @@ trait MetadataConsumer { this: Actor =>
 
     topicMetadata.errorCode match {
       case LeaderNotAvailableCode => None
-      case UnknownTopicOrPartitionCode => None
       case NoError => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
       case anError => throw exceptionFor(anError)
     }

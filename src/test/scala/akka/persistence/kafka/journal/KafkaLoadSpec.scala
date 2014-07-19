@@ -54,9 +54,9 @@ object KafkaLoadSpec {
 
     def receiveCommand: Receive = {
       case c @ "start" =>
-        defer(c)(_ => startMeasure())
+        defer(c) { _ => startMeasure(); sender ! "started" }
       case c @ "stop" =>
-        defer(c)(_ => stopMeasure())
+        defer(c) { _ => stopMeasure() }
       case payload: String =>
         persistAsync(payload)(handle)
     }
@@ -82,13 +82,14 @@ class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) w
   }
 
   "A Kafka Journal" must {
-    "some reasonable throughput" in {
+    "have some reasonable throughput" in {
       val warmCycles = 100L  // set to 10000L to get reasonable results
       val loadCycles = 1000L // set to 300000L to get reasonable results
 
       val processor1 = system.actorOf(Props(classOf[TestPersistentActor], "test"))
       1L to warmCycles foreach { i => processor1 ! "a" }
       processor1 ! "start"
+      expectMsg("started")
       1L to loadCycles foreach { i => processor1 ! "a" }
       processor1 ! "stop"
       expectMsgPF(100.seconds) { case throughput: Double ⇒ println(f"\nthroughput = $throughput%.2f persistent commands per second") }
