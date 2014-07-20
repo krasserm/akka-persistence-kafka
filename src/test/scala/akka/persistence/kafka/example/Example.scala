@@ -39,7 +39,7 @@ class ExampleProcessor(val persistenceId: String) extends PersistentActor {
       state = snapshot
       println(s"state initialized: ${state} (metadata = ${md})")
     case RecoveryFailure(e) =>
-      e.printStackTrace()
+      println(s"recovery failed (error = ${e.getMessage})")
   }
 
   def update(i: Increment): Unit = {
