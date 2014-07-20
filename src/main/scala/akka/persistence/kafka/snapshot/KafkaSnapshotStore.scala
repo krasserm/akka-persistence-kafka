@@ -56,19 +56,7 @@ trait KafkaSnapshotStoreEndpoint extends Actor {
   def deleteAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Unit]
 }
 
-object KafkaSnapshotStore {
-  //
-  // TODO: implement a protobuf serializer for SnapshotAndMetadata
-  //
-  case class SnapshotAndMetadata(snapshot: Any, metadata: SnapshotMetadata) {
-    def matches(criteria: SnapshotSelectionCriteria): Boolean =
-      metadata.sequenceNr <= criteria.maxSequenceNr &&
-      metadata.timestamp <= criteria.maxTimestamp
-  }
-}
-
 class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsumer with ActorLogging {
-  import KafkaSnapshotStore._
   import context.dispatcher
 
   val serialization = SerializationExtension(context.system)
@@ -91,7 +79,7 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
   }
 
   def saveAsync(metadata: SnapshotMetadata, snapshot: Any): Future[Unit] = Future {
-    val snapshotBytes = serialization.serialize(SnapshotAndMetadata(snapshot, metadata)).get
+    val snapshotBytes = serialization.serialize(KafkaSnapshot(metadata, snapshot)).get
     val snapshotMessage = new KeyedMessage[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
     val snapshotProducer = new Producer[String, Array[Byte]](config.producerConfig(brokers))
     snapshotProducer.send(snapshotMessage)
@@ -116,20 +104,21 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
         // -----------------------------------------------------------------------------------
         // This can have terrible performance if criteria != SnapshotSelectionCriteria.Latest
         // as it iterates over stored all snapshots. Memory consumption is however limited by
-        // fetch.message.max.bytes consumer property. // TODO: document limitations and usage
+        // fetch.message.max.bytes consumer property.
         // -----------------------------------------------------------------------------------
         iter.foldLeft[Option[SelectedSnapshot]](None) {
-          case (r, SnapshotAndMetadata(snapshot, metadata)) => Some(SelectedSnapshot(metadata, snapshot))
+          case (r, KafkaSnapshot(metadata, snapshot)) => Some(SelectedSnapshot(metadata, snapshot))
         }
       }
     }
   }
 
-  private def snapshotIterator(host: String, port: Int, topic: String, offset: Long): Iterator[SnapshotAndMetadata] =
+  private def snapshotIterator(host: String, port: Int, topic: String, offset: Long): Iterator[KafkaSnapshot] =
     new MessageIterator(host, port, topic, config.partition, offset, config.consumerConfig).map { m =>
-      serialization.deserialize(MessageUtil.payloadBytes(m), classOf[SnapshotAndMetadata]).get
+      serialization.deserialize(MessageUtil.payloadBytes(m), classOf[KafkaSnapshot]).get
     }
 
   private def snapshotTopic(persistenceId: String): String =
     s"${config.prefix}${persistenceId}"
 }
+
