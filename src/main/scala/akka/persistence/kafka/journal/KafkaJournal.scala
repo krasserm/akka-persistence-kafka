@@ -44,10 +44,19 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   val evtTopicMapper = config.eventTopicMapper
 
   def asyncWriteMessages(messages: Seq[PersistentRepr]): Future[Unit] =
-    Future(writeMessages(messages))
+    // The Kafka API doesn't provide an async interface but extending
+    // SyncWriteJournal is not an option here because we want to avoid
+    // journal restarts on failure (which is enforced by SyncWriteJournal)
+    //
+    // TODO: investigate issues when re-initializing Kafka producer on restart
+    //
+    Try(writeMessages(messages)) match {
+      case Success(r) => Future.successful(r)
+      case Failure(e) => Future.failed(e)
+    }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long, permanent: Boolean): Future[Unit] =
-    Future(deleteMessagesTo(persistenceId, toSequenceNr, permanent))
+    Future.successful(deleteMessagesTo(persistenceId, toSequenceNr, permanent))
 
   def asyncDeleteMessages(messageIds: Seq[PersistentId], permanent: Boolean): Future[Unit] =
     Future.failed(new UnsupportedOperationException("Individual deletions not supported"))
