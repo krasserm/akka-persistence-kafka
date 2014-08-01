@@ -1,23 +1,20 @@
 Kafka Plugins for Akka Persistence
 ==================================
 
-This project features [storage plugins](http://doc.akka.io/docs/akka/2.3.4/scala/persistence.html#storage-plugins) for [Akka Persistence](http://doc.akka.io/docs/akka/2.3.4/scala/persistence.html) that are backed by [Apache Kafka](http://kafka.apache.org/).
-
-- [Journal plugin](#journal-plugin) (passes [TCK](https://github.com/krasserm/akka-persistence-testkit)).
-- [Snapshot store plugin](#snapshot-store-plugin) (passes [TCK](https://github.com/krasserm/akka-persistence-testkit))
+Replicated [Akka Persistence](http://doc.akka.io/docs/akka/2.3.4/scala/persistence.html) journal and snapshot store backed by [Apache Kafka](http://kafka.apache.org/).
 
 [![Build Status](https://travis-ci.org/krasserm/akka-persistence-kafka.svg?branch=travis)](https://travis-ci.org/krasserm/akka-persistence-kafka)
 
 Dependency
 ----------
 
-To include the Kafka storage plugins into your `sbt` project, add the following lines to your `build.sbt` file:
+To include the Kafka plugins into your `sbt` project, add the following lines to your `build.sbt` file:
 
     resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
     libraryDependencies += "com.github.krasserm" %% "akka-persistence-kafka" % "0.2.1"
 
-Version `0.2.1` depends on Kafka 0.8.1.1, Akka 2.3.4 and Scala 2.10.
+This version of `akka-persistence-kafka` depends on Kafka 0.8.1.1, Akka 2.3.4 and Scala 2.10.
 
 Usage hints
 -----------
