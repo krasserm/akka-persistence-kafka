@@ -6,6 +6,8 @@ This project features [storage plugins](http://doc.akka.io/docs/akka/2.3.4/scala
 - [Journal plugin](#journal-plugin) (passes [TCK](https://github.com/krasserm/akka-persistence-testkit)).
 - [Snapshot store plugin](#snapshot-store-plugin) (passes [TCK](https://github.com/krasserm/akka-persistence-testkit))
 
+[![Build Status](https://travis-ci.org/krasserm/akka-persistence-kafka.svg?branch=travis)](https://travis-ci.org/krasserm/akka-persistence-kafka)
+
 Dependency
 ----------
 
