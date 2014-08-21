@@ -67,7 +67,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   def writeMessages(messages: Seq[PersistentRepr]): Unit = {
     val keyedMsgs = for {
       m <- messages
-    } yield new KeyedMessage[String, Array[Byte]](m.persistenceId, "static", serialization.serialize(m).get)
+    } yield new KeyedMessage[String, Array[Byte]](topic(m.persistenceId), "static", serialization.serialize(m).get)
 
     val keyedEvents = for {
       m <- messages
@@ -110,10 +110,10 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
     val adjustedNum = toSequenceNr - adjustedFrom + 1L
     val adjustedTo = if (max < adjustedNum) adjustedFrom + max - 1L else toSequenceNr
 
-    val lastSequenceNr = leaderFor(persistenceId, brokers) match {
+    val lastSequenceNr = leaderFor(topic(persistenceId), brokers) match {
       case None => 0L // topic for persistenceId doesn't exist yet
       case Some(MetadataConsumer.Broker(host, port)) =>
-        val iter = persistentIterator(host, port, persistenceId, adjustedFrom - 1L)
+        val iter = persistentIterator(host, port, topic(persistenceId), adjustedFrom - 1L)
         iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(adjustedFrom) {
           case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
         }

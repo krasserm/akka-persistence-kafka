@@ -94,5 +94,14 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
       persistent("pb").map(_.payload) should be(Seq("b-1", "b-2", "b-3"))
       persistent("pc").map(_.payload) should be(Seq("c-1", "c-2", "c-3"))
     }
+    "properly encode topic names" in {
+      val actorId = "a/b/c" // not a valid topic name
+      val actor = system.actorOf(Props(new TestPersistentActor(actorId)))
+
+      actor ! "a"; expectMsg("a")
+      actor ! "b"; expectMsg("b")
+
+      persistent(topic(actorId)).map(_.payload) should be(Seq("a", "b"))
+    }
   }
 }

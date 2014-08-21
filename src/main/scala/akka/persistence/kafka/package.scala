@@ -7,6 +7,9 @@ import java.util.Properties
 import com.typesafe.config.Config
 
 package object kafka {
+  def topic(persistenceId: String): String =
+    persistenceId.replaceAll("[^\\w\\._-]", "_")
+
   def configToProperties(config: Config, extra: Map[String, String] = Map.empty): Properties = {
     val properties = new Properties()
 
