@@ -9,6 +9,12 @@ import kafka.producer.ProducerConfig
 import kafka.utils._
 
 class KafkaJournalConfig(config: Config) extends MetadataConsumerConfig(config) {
+  val pluginDispatcher: String =
+    config.getString("plugin-dispatcher")
+
+  val writeConcurrency: Int =
+    config.getInt("write-concurrency")
+
   val eventTopicMapper: EventTopicMapper =
     Utils.createObject[EventTopicMapper](config.getString("event.producer.topic.mapper.class"))
 

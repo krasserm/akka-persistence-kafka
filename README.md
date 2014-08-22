@@ -271,6 +271,10 @@ Reference configuration
       # Dispatcher for the plugin actor
       plugin-dispatcher = "kafka-journal.default-dispatcher"
     
+      # Number of concurrent writers (should be <= number of available threads in
+      # dispatcher).
+      write-concurrency = 8
+
       # The partition to use when publishing to and consuming from journal topics.
       partition = 0
     
@@ -321,6 +325,12 @@ Reference configuration
         # DO NOT CHANGE!
         key.serializer.class = "kafka.serializer.StringEncoder"
     
+        # Increase if hundreds of topics are created during initialization.
+        message.send.max.retries = 5
+
+        # Increase if hundreds of topics are created during initialization.
+        retry.backoff.ms = 100
+
         # Add further Kafka producer settings here, if needed.
         # ...
       }

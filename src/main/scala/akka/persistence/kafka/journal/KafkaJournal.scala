@@ -1,11 +1,10 @@
 package akka.persistence.kafka.journal
 
 import scala.collection.immutable.Seq
-import scala.util._
 
 import akka.persistence.{PersistentId, PersistentConfirmation}
 import akka.persistence.journal.AsyncWriteJournal
-import akka.serialization.SerializationExtension
+import akka.serialization.{Serialization, SerializationExtension}
 
 import kafka.producer._
 
@@ -18,7 +17,6 @@ import akka.persistence.PersistentRepr
 import akka.persistence.kafka._
 import akka.util.Timeout
 
-
 class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   import context.dispatcher
   import Watermarks._
@@ -27,33 +25,26 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
   val brokers = allBrokers()
 
-  val watermarks: ActorRef = context.actorOf(Props[Watermarks])
-  // Transient deletions only to pass TCK (persistent not supported)
-  var deletions = Map.empty[String, (Long, Boolean)]
-
   // --------------------------------------------------------------------------------------
   //  Journal writes
   // --------------------------------------------------------------------------------------
 
-  // -----------------------------------------------------
-  // TODO: consider using a producer per dispatcher thread
-  // -----------------------------------------------------
-  val msgProducer = new Producer[String, Array[Byte]](config.journalProducerConfig(brokers))
-  val evtProducer = new Producer[String, Event](config.eventProducerConfig(brokers))
+  val journalProducerConfig = config.journalProducerConfig(brokers)
+  val eventProducerConfig = config.eventProducerConfig(brokers)
 
-  val evtTopicMapper = config.eventTopicMapper
+  val watermarks: ActorRef = context.actorOf(Props[Watermarks])
+  val writers: Vector[ActorRef] = Vector.fill(config.writeConcurrency)(writer())
+  val writeTimeout = Timeout(journalProducerConfig.requestTimeoutMs.millis)
 
-  def asyncWriteMessages(messages: Seq[PersistentRepr]): Future[Unit] =
-    // The Kafka API doesn't provide an async interface but extending
-    // SyncWriteJournal is not an option here because we want to avoid
-    // journal restarts on failure (which is enforced by SyncWriteJournal)
-    //
-    // TODO: investigate issues when re-initializing Kafka producer on restart
-    //
-    Try(writeMessages(messages)) match {
-      case Success(r) => Future.successful(r)
-      case Failure(e) => Future.failed(e)
+  // Transient deletions only to pass TCK (persistent not supported)
+  var deletions = Map.empty[String, (Long, Boolean)]
+
+  def asyncWriteMessages(messages: Seq[PersistentRepr]): Future[Unit] = {
+    val sends = messages.groupBy(_.persistenceId).map {
+      case (pid, msgs) => writerFor(pid).ask(messages)(writeTimeout)
     }
+    Future.sequence(sends).map(_ => ())
+  }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long, permanent: Boolean): Future[Unit] =
     Future.successful(deleteMessagesTo(persistenceId, toSequenceNr, permanent))
@@ -64,24 +55,6 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   def asyncWriteConfirmations(confirmations: Seq[PersistentConfirmation]): Future[Unit] =
     Future.failed(new UnsupportedOperationException("Channels not supported"))
 
-  def writeMessages(messages: Seq[PersistentRepr]): Unit = {
-    val keyedMsgs = for {
-      m <- messages
-    } yield new KeyedMessage[String, Array[Byte]](topic(m.persistenceId), "static", serialization.serialize(m).get)
-
-    val keyedEvents = for {
-      m <- messages
-      e = Event(m.persistenceId, m.sequenceNr, m.payload)
-      t <- evtTopicMapper.topicsFor(e)
-    } yield new KeyedMessage(t, e.persistenceId, e)
-
-    msgProducer.send(keyedMsgs: _*)
-    evtProducer.send(keyedEvents: _*)
-
-    // TODO: this can be optimized by sending only the highest sequenceNr per persistenceId
-    messages.foreach(m => watermarks ! Watermarks.LastSequenceNr(m.persistenceId, m.sequenceNr))
-  }
-
   def deleteMessagesTo(persistenceId: String, toSequenceNr: Long, permanent: Boolean): Unit =
     deletions = deletions + (persistenceId -> (toSequenceNr, permanent))
 
@@ -90,6 +63,17 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
 
   def writeConfirmations(confirmations: Seq[PersistentConfirmation]): Unit =
     throw new UnsupportedOperationException("Channels not supported")
+
+  private def writerFor(persistenceId: String): ActorRef =
+    writers(math.abs(persistenceId.hashCode) % config.writeConcurrency)
+
+  private def writer(): ActorRef = {
+    val msgProducer = new Producer[String, Array[Byte]](journalProducerConfig)
+    val evtProducer = new Producer[String, Event](eventProducerConfig)
+
+    val writerConfig = KafkaJournalWriterConfig(msgProducer, evtProducer, config.eventTopicMapper, watermarks, serialization)
+    context.actorOf(Props(new KafkaJournalWriter(writerConfig)).withDispatcher(config.pluginDispatcher))
+  }
 
   // --------------------------------------------------------------------------------------
   //  Journal reads
@@ -126,6 +110,41 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
     new MessageIterator(host, port, topic, config.partition, offset, config.consumerConfig).map { m =>
       serialization.deserialize(MessageUtil.payloadBytes(m), classOf[PersistentRepr]).get
     }
+  }
+}
+
+private case class KafkaJournalWriterConfig(
+  msgProducer: Producer[String, Array[Byte]],
+  evtProducer: Producer[String, Event],
+  evtTopicMapper: EventTopicMapper,
+  watermarks: ActorRef,
+  serialization: Serialization)
+
+private class KafkaJournalWriter(config: KafkaJournalWriterConfig) extends Actor {
+  import config._
+
+  def receive = {
+    case messages: Seq[PersistentRepr] =>
+      writeMessages(messages)
+      sender ! ()
+  }
+
+  def writeMessages(messages: Seq[PersistentRepr]): Unit = {
+    val keyedMsgs = for {
+      m <- messages
+    } yield new KeyedMessage[String, Array[Byte]](topic(m.persistenceId), "static", serialization.serialize(m).get)
+
+    val keyedEvents = for {
+      m <- messages
+      e = Event(m.persistenceId, m.sequenceNr, m.payload)
+      t <- evtTopicMapper.topicsFor(e)
+    } yield new KeyedMessage(t, e.persistenceId, e)
+
+    msgProducer.send(keyedMsgs: _*)
+    evtProducer.send(keyedEvents: _*)
+
+    // TODO: this can be optimized by sending only the highest sequenceNr per persistenceId
+    messages.foreach(m => watermarks ! Watermarks.LastSequenceNr(m.persistenceId, m.sequenceNr))
   }
 
   override def postStop(): Unit = {
