@@ -21,6 +21,8 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   import context.dispatcher
   import Watermarks._
 
+  type Deletions = Map[String, (Long, Boolean)]
+
   val serialization = SerializationExtension(context.system)
   val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
   val brokers = allBrokers()
@@ -37,7 +39,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   val writeTimeout = Timeout(journalProducerConfig.requestTimeoutMs.millis)
 
   // Transient deletions only to pass TCK (persistent not supported)
-  var deletions = Map.empty[String, (Long, Boolean)]
+  var deletions: Deletions = Map.empty
 
   def asyncWriteMessages(messages: Seq[PersistentRepr]): Future[Unit] = {
     val sends = messages.groupBy(_.persistenceId).map {
@@ -84,10 +86,13 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
       case LastSequenceNr(_, lastSequenceNr) => math.max(lastSequenceNr, fromSequenceNr)
     }
 
-  def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] =
-    Future(replayMessages(persistenceId, fromSequenceNr, toSequenceNr, max, replayCallback))
+  def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] = {
+    val deletions = this.deletions
+    Future(replayMessages(persistenceId, fromSequenceNr, toSequenceNr, max, deletions, replayCallback))
+  }
 
-  def replayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long, callback: PersistentRepr => Unit): Unit = {
+
+  def replayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long, deletions: Deletions, callback: PersistentRepr => Unit): Unit = {
     val (deletedTo, permanent) = deletions.getOrElse(persistenceId, (0L, false))
 
     val adjustedFrom = if (permanent) math.max(deletedTo + 1L, fromSequenceNr) else fromSequenceNr

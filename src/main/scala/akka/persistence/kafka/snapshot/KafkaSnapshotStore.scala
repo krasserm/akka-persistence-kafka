@@ -59,13 +59,16 @@ trait KafkaSnapshotStoreEndpoint extends Actor {
 class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsumer with ActorLogging {
   import context.dispatcher
 
+  type RangeDeletions = Map[String, SnapshotSelectionCriteria]
+  type SingleDeletions = Map[String, List[SnapshotMetadata]]
+
   val serialization = SerializationExtension(context.system)
   val config = new KafkaSnapshotStoreConfig(context.system.settings.config.getConfig("kafka-snapshot-store"))
   val brokers = allBrokers()
 
   // Transient deletions only to pass TCK (persistent not supported)
-  var rangeDeletions = Map.empty[String, SnapshotSelectionCriteria].withDefaultValue(SnapshotSelectionCriteria.None)
-  var singleDeletions = Map.empty[String, List[SnapshotMetadata]].withDefaultValue(Nil)
+  var rangeDeletions: RangeDeletions = Map.empty.withDefaultValue(SnapshotSelectionCriteria.None)
+  var singleDeletions: SingleDeletions = Map.empty.withDefaultValue(Nil)
 
   def deleteAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Unit] = Future.successful {
     rangeDeletions += (persistenceId -> criteria)
@@ -85,7 +88,13 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
     snapshotProducer.send(snapshotMessage)
   }
 
-  def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = Future {
+  def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
+    val singleDeletions = this.singleDeletions
+    val rangeDeletions = this.rangeDeletions
+    Future(load(persistenceId, criteria, singleDeletions, rangeDeletions))
+  }
+
+  def load(persistenceId: String, criteria: SnapshotSelectionCriteria, singleDeletions: SingleDeletions, rangeDeletions: RangeDeletions): Option[SelectedSnapshot] = {
     val topic = snapshotTopic(persistenceId)
     leaderFor(topic, brokers) match {
       case None => None
