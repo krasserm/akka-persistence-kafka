@@ -128,6 +128,6 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
     }
 
   private def snapshotTopic(persistenceId: String): String =
-    s"${config.prefix}${topic(persistenceId)}"
+    s"${config.prefix}${journalTopic(persistenceId)}"
 }
 

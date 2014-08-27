@@ -3,7 +3,7 @@ package akka.persistence.kafka.journal
 import scala.collection.immutable.Seq
 
 import akka.actor._
-import akka.persistence.{PersistentRepr, PersistentActor}
+import akka.persistence._
 import akka.persistence.kafka._
 import akka.persistence.kafka.server._
 import akka.serialization.SerializationExtension
@@ -11,7 +11,7 @@ import akka.testkit._
 
 import com.typesafe.config.ConfigFactory
 
-import kafka.message.Message
+import _root_.kafka.message.Message
 
 import org.scalatest._
 
@@ -101,7 +101,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
       actor ! "a"; expectMsg("a")
       actor ! "b"; expectMsg("b")
 
-      persistent(topic(actorId)).map(_.payload) should be(Seq("a", "b"))
+      persistent(journalTopic(actorId)).map(_.payload) should be(Seq("a", "b"))
     }
   }
 }
