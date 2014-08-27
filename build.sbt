@@ -6,6 +6,8 @@ version := "0.4-SNAPSHOT"
 
 scalaVersion := "2.10.4"
 
+scalacOptions += "-target:jvm-1.7"
+
 resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
 parallelExecution in Test := false
