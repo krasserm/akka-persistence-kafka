@@ -85,7 +85,12 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
     val snapshotBytes = serialization.serialize(KafkaSnapshot(metadata, snapshot)).get
     val snapshotMessage = new KeyedMessage[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
     val snapshotProducer = new Producer[String, Array[Byte]](config.producerConfig(brokers))
-    snapshotProducer.send(snapshotMessage)
+    try {
+      // TODO: take a producer from a pool
+      snapshotProducer.send(snapshotMessage)
+    } finally {
+      snapshotProducer.close()
+    }
   }
 
   def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
