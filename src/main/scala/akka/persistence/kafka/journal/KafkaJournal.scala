@@ -87,7 +87,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
     val topic = journalTopic(persistenceId)
     leaderFor(topic, brokers) match {
       case Some(Broker(host, port)) => offsetFor(host, port, topic, config.partition)
-      case None                     => 0L
+      case None                     => fromSequenceNr
     }
   }
 
