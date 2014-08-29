@@ -15,11 +15,13 @@ import akka.actor._
 import akka.pattern.ask
 import akka.persistence.PersistentRepr
 import akka.persistence.kafka._
+import akka.persistence.kafka.MetadataConsumer.Broker
 import akka.util.Timeout
 
 class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   import context.dispatcher
-  import Watermarks._
+
+  type Deletions = Map[String, (Long, Boolean)]
 
   val serialization = SerializationExtension(context.system)
   val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
@@ -32,12 +34,11 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   val journalProducerConfig = config.journalProducerConfig(brokers)
   val eventProducerConfig = config.eventProducerConfig(brokers)
 
-  val watermarks: ActorRef = context.actorOf(Props[Watermarks])
   val writers: Vector[ActorRef] = Vector.fill(config.writeConcurrency)(writer())
   val writeTimeout = Timeout(journalProducerConfig.requestTimeoutMs.millis)
 
   // Transient deletions only to pass TCK (persistent not supported)
-  var deletions = Map.empty[String, (Long, Boolean)]
+  var deletions: Deletions = Map.empty
 
   def asyncWriteMessages(messages: Seq[PersistentRepr]): Future[Unit] = {
     val sends = messages.groupBy(_.persistenceId).map {
@@ -71,7 +72,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
     val msgProducer = new Producer[String, Array[Byte]](journalProducerConfig)
     val evtProducer = new Producer[String, Event](eventProducerConfig)
 
-    val writerConfig = KafkaJournalWriterConfig(msgProducer, evtProducer, config.eventTopicMapper, watermarks, serialization)
+    val writerConfig = KafkaJournalWriterConfig(msgProducer, evtProducer, config.eventTopicMapper, serialization)
     context.actorOf(Props(new KafkaJournalWriter(writerConfig)).withDispatcher(config.pluginDispatcher))
   }
 
@@ -80,30 +81,36 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   // --------------------------------------------------------------------------------------
 
   def asyncReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] =
-    watermarks.ask(LastSequenceNrRequest(persistenceId))(Timeout(10.seconds)).map {
-      case LastSequenceNr(_, lastSequenceNr) => math.max(lastSequenceNr, fromSequenceNr)
+    Future(readHighestSequenceNr(persistenceId, fromSequenceNr))
+
+  def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Long = {
+    val topic = journalTopic(persistenceId)
+    leaderFor(topic, brokers) match {
+      case Some(Broker(host, port)) => offsetFor(host, port, topic, config.partition)
+      case None                     => fromSequenceNr
     }
+  }
 
-  def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] =
-    Future(replayMessages(persistenceId, fromSequenceNr, toSequenceNr, max, replayCallback))
+  def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] = {
+    val deletions = this.deletions
+    Future(replayMessages(persistenceId, fromSequenceNr, toSequenceNr, max, deletions, replayCallback))
+  }
 
-  def replayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long, callback: PersistentRepr => Unit): Unit = {
+  def replayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long, deletions: Deletions, callback: PersistentRepr => Unit): Unit = {
     val (deletedTo, permanent) = deletions.getOrElse(persistenceId, (0L, false))
 
     val adjustedFrom = if (permanent) math.max(deletedTo + 1L, fromSequenceNr) else fromSequenceNr
     val adjustedNum = toSequenceNr - adjustedFrom + 1L
     val adjustedTo = if (max < adjustedNum) adjustedFrom + max - 1L else toSequenceNr
 
-    val lastSequenceNr = leaderFor(topic(persistenceId), brokers) match {
+    val lastSequenceNr = leaderFor(journalTopic(persistenceId), brokers) match {
       case None => 0L // topic for persistenceId doesn't exist yet
       case Some(MetadataConsumer.Broker(host, port)) =>
-        val iter = persistentIterator(host, port, topic(persistenceId), adjustedFrom - 1L)
+        val iter = persistentIterator(host, port, journalTopic(persistenceId), adjustedFrom - 1L)
         iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(adjustedFrom) {
           case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
         }
     }
-
-    watermarks ! LastSequenceNr(persistenceId, lastSequenceNr)
   }
 
   def persistentIterator(host: String, port: Int, topic: String, offset: Long): Iterator[PersistentRepr] = {
@@ -117,7 +124,6 @@ private case class KafkaJournalWriterConfig(
   msgProducer: Producer[String, Array[Byte]],
   evtProducer: Producer[String, Event],
   evtTopicMapper: EventTopicMapper,
-  watermarks: ActorRef,
   serialization: Serialization)
 
 private class KafkaJournalWriter(config: KafkaJournalWriterConfig) extends Actor {
@@ -132,7 +138,7 @@ private class KafkaJournalWriter(config: KafkaJournalWriterConfig) extends Actor
   def writeMessages(messages: Seq[PersistentRepr]): Unit = {
     val keyedMsgs = for {
       m <- messages
-    } yield new KeyedMessage[String, Array[Byte]](topic(m.persistenceId), "static", serialization.serialize(m).get)
+    } yield new KeyedMessage[String, Array[Byte]](journalTopic(m.persistenceId), "static", serialization.serialize(m).get)
 
     val keyedEvents = for {
       m <- messages
@@ -142,32 +148,11 @@ private class KafkaJournalWriter(config: KafkaJournalWriterConfig) extends Actor
 
     msgProducer.send(keyedMsgs: _*)
     evtProducer.send(keyedEvents: _*)
-
-    // TODO: this can be optimized by sending only the highest sequenceNr per persistenceId
-    messages.foreach(m => watermarks ! Watermarks.LastSequenceNr(m.persistenceId, m.sequenceNr))
   }
 
   override def postStop(): Unit = {
     msgProducer.close()
     evtProducer.close()
     super.postStop()
-  }
-}
-
-private object Watermarks {
-  case class LastSequenceNr(persistenceId: String, lastSequenceNr: Long)
-  case class LastSequenceNrRequest(persistenceId: String)
-}
-
-private class Watermarks extends Actor {
-  import Watermarks._
-
-  var lastSequenceNrs = Map.empty[String, Long]
-
-  def receive = {
-    case LastSequenceNr(persistenceId, lastSequenceNr) =>
-      lastSequenceNrs = lastSequenceNrs + (persistenceId -> lastSequenceNr)
-    case LastSequenceNrRequest(persistenceId) =>
-      sender ! LastSequenceNr(persistenceId, lastSequenceNrs.getOrElse(persistenceId, 0L))
   }
 }

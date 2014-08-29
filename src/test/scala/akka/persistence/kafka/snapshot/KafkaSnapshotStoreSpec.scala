@@ -17,6 +17,7 @@ class KafkaSnapshotStoreSpec extends SnapshotStoreSpec with KafkaCleanup {
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
       |akka.test.single-expect-default = 10s
       |kafka-snapshot-store.consumer.fetch.message.max.bytes = ${maxMessageSize}
+      |kafka-snapshot-store.ignore-orphan = false
       |test-server.kafka.message.max.bytes = ${maxMessageSize}
       |test-server.kafka.replica.fetch.max.bytes = ${maxMessageSize}
       |test-server.zookeeper.dir = target/test/zookeeper

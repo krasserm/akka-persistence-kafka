@@ -45,10 +45,14 @@ trait MetadataConsumer {
     val response = try { consumer.send(request) } finally { consumer.close() }
     val topicMetadata = response.topicsMetadata(0)
 
-    topicMetadata.errorCode match {
-      case LeaderNotAvailableCode => None
-      case NoError => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
-      case anError => throw exceptionFor(anError)
+    try {
+      topicMetadata.errorCode match {
+        case LeaderNotAvailableCode => None
+        case NoError => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
+        case anError => throw exceptionFor(anError)
+      }
+    } finally {
+      consumer.close()
     }
   }
 
@@ -61,9 +65,13 @@ trait MetadataConsumer {
     val offsetResponse = try { consumer.getOffsetsBefore(offsetRequest) } finally { consumer.close() }
     val offsetPartitionResponse = offsetResponse.partitionErrorAndOffsets(TopicAndPartition(topic, partition))
 
-    offsetPartitionResponse.error match {
-      case NoError => offsetPartitionResponse.offsets.head
-      case anError => throw exceptionFor(anError)
+    try {
+      offsetPartitionResponse.error match {
+        case NoError => offsetPartitionResponse.offsets.head
+        case anError => throw exceptionFor(anError)
+      }
+    } finally {
+      consumer.close()
     }
   }
 
