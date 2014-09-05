@@ -101,7 +101,9 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
     val rangeDeletions = this.rangeDeletions
     for {
       highest <- if (config.ignoreOrphan) highestJournalSequenceNr(persistenceId) else Future.successful(Long.MaxValue)
-      adjusted = if (config.ignoreOrphan && highest < criteria.maxSequenceNr) criteria.copy(maxSequenceNr = highest) else criteria
+      adjusted = if (config.ignoreOrphan &&
+        highest < criteria.maxSequenceNr &&
+        highest > 0L) criteria.copy(maxSequenceNr = highest) else criteria
       snapshot <- Future {
         val topic = snapshotTopic(persistenceId)
 
