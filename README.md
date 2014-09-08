@@ -1,7 +1,7 @@
 Kafka Plugins for Akka Persistence
 ==================================
 
-Replicated [Akka Persistence](http://doc.akka.io/docs/akka/2.3.5/scala/persistence.html) journal and snapshot store backed by [Apache Kafka](http://kafka.apache.org/).
+Replicated [Akka Persistence](http://doc.akka.io/docs/akka/2.3.6/scala/persistence.html) journal and snapshot store backed by [Apache Kafka](http://kafka.apache.org/).
 
 [![Build Status](https://travis-ci.org/krasserm/akka-persistence-kafka.svg?branch=travis)](https://travis-ci.org/krasserm/akka-persistence-kafka)
 
@@ -12,9 +12,9 @@ To include the Kafka plugins into your `sbt` project, add the following lines to
 
     resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
-    libraryDependencies += "com.github.krasserm" %% "akka-persistence-kafka" % "0.3.1"
+    libraryDependencies += "com.github.krasserm" %% "akka-persistence-kafka" % "0.3.2"
 
-This version of `akka-persistence-kafka` depends on Kafka 0.8.1.1, Akka 2.3.5 and Scala 2.10. A complete list of released versions is [here](https://github.com/krasserm/akka-persistence-kafka/wiki/Releases).
+This version of `akka-persistence-kafka` depends on Kafka 0.8.1.1, Akka 2.3.6 and Scala 2.10. A complete list of released versions is [here](https://github.com/krasserm/akka-persistence-kafka/wiki/Releases).
 
 Usage hints
 -----------
@@ -38,13 +38,13 @@ This will run the journal plugin with default settings and connect to a Zookeepe
 
 ### Use cases 
 
-- Akka Persistence [journal plugin](http://doc.akka.io/docs/akka/2.3.5/scala/persistence.html#journal-plugin-api) (obvious).
+- Akka Persistence [journal plugin](http://doc.akka.io/docs/akka/2.3.6/scala/persistence.html#journal-plugin-api) (obvious).
 - Event publishing to [user-defined topics](#user-defined-topics).
 - Event consumption from user-defined topics by [external consumers](#external-consumers).  
 
 ### Journal topics
 
-For each persistent actor, the plugin creates a Kafka topic where the topic name equals the actor's `persistenceId` (only if it contains alphanumeric, `.`, `-` or `_` characters, otherwise, all other characters are replaced by `_`). Events published to these topics are serialized `akka.persistence.PersistentRepr` objects (see [journal plugin API](http://doc.akka.io/docs/akka/2.3.5/scala/persistence.html#journal-plugin-api)). Serialization of `PersistentRepr` objects can be [customized](http://doc.akka.io/docs/akka/2.3.5/scala/persistence.html#custom-serialization). Journal topics are mainly intended for internal use (for recovery of persistent actors) but can also be [consumed externally](#external-consumers). 
+For each persistent actor, the plugin creates a Kafka topic where the topic name equals the actor's `persistenceId` (only if it contains alphanumeric, `.`, `-` or `_` characters, otherwise, all other characters are replaced by `_`). Events published to these topics are serialized `akka.persistence.PersistentRepr` objects (see [journal plugin API](http://doc.akka.io/docs/akka/2.3.6/scala/persistence.html#journal-plugin-api)). Serialization of `PersistentRepr` objects can be [customized](http://doc.akka.io/docs/akka/2.3.6/scala/persistence.html#custom-serialization). Journal topics are mainly intended for internal use (for recovery of persistent actors) but can also be [consumed externally](#external-consumers). 
 
 ### User-defined topics
 

@@ -44,6 +44,15 @@ object KafkaIntegrationSpec {
         probe ! s
     }
   }
+
+  class TestPersistentView(val persistenceId: String, val viewId: String, probe: ActorRef) extends PersistentView {
+    def receive = {
+      case s: SnapshotOffer =>
+        probe ! s
+      case s: String =>
+        probe ! s
+    }
+  }
 }
 
 class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaCleanup {
@@ -76,6 +85,11 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   }
 
   import serverConfig._
+
+  def withPersistentView(persistenceId: String, viewId: String)(body: ActorRef => Unit) = {
+    val actor = system.actorOf(Props(new TestPersistentView(persistenceId, viewId, testActor)))
+    try { body(actor) } finally { system.stop(actor) }
+  }
 
   def withPersistentActor(persistenceId: String)(body: ActorRef => Unit) = {
     val actor = system.actorOf(Props(new TestPersistentActor(persistenceId, testActor)))
@@ -134,16 +148,6 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
           expectMsg("a-3")
         }
       }
-      "ignore orphan snapshots (journal topic doesn't exist)" in {
-        val persistenceId = "no-journal"
-
-        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 4), "test")
-        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(4L) }
-
-        withPersistentActor(persistenceId) { _ =>
-          expectNoMsg(500.millis)
-        }
-      }
       "fallback to non-orphan snapshots" in {
         val persistenceId = "pa"
 
@@ -154,6 +158,18 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
         expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(4L) }
 
         withPersistentActor(persistenceId) { _ =>
+          expectMsgPF() { case SnapshotOffer(SnapshotMetadata(_, snr, _), _) => snr should be(2) }
+          expectMsg("a-3")
+        }
+      }
+      "not ignore view snapshots (for which no corresponding journal topic exists)" in {
+        val persistenceId = "pa"
+        val viewId = "va"
+
+        store ! SaveSnapshot(SnapshotMetadata(viewId, 2), "test")
+        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(2L) }
+
+        withPersistentView(persistenceId, viewId) { _ =>
           expectMsgPF() { case SnapshotOffer(SnapshotMetadata(_, snr, _), _) => snr should be(2) }
           expectMsg("a-3")
         }
