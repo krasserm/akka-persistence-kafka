@@ -69,10 +69,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
     writers(math.abs(persistenceId.hashCode) % config.writeConcurrency)
 
   private def writer(): ActorRef = {
-    val msgProducer = new Producer[String, Array[Byte]](journalProducerConfig)
-    val evtProducer = new Producer[String, Event](eventProducerConfig)
-
-    val writerConfig = KafkaJournalWriterConfig(msgProducer, evtProducer, config.eventTopicMapper, serialization)
+    def writerConfig = KafkaJournalWriterConfig(journalProducerConfig, eventProducerConfig, config.eventTopicMapper, serialization)
     context.actorOf(Props(new KafkaJournalWriter(writerConfig)).withDispatcher(config.pluginDispatcher))
   }
 
@@ -121,13 +118,15 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
 }
 
 private case class KafkaJournalWriterConfig(
-  msgProducer: Producer[String, Array[Byte]],
-  evtProducer: Producer[String, Event],
+  journalProducerConfig: ProducerConfig,
+  eventProducerConfig: ProducerConfig,
   evtTopicMapper: EventTopicMapper,
   serialization: Serialization)
 
 private class KafkaJournalWriter(config: KafkaJournalWriterConfig) extends Actor {
   import config._
+  val msgProducer = new Producer[String, Array[Byte]](config.journalProducerConfig)
+  val evtProducer = new Producer[String, Event](config.eventProducerConfig)
 
   def receive = {
     case messages: Seq[PersistentRepr] =>
