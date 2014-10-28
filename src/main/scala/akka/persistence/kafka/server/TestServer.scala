@@ -55,7 +55,11 @@ class TestKafkaServer(config: TestServerConfig) {
   private val server: KafkaServer =
     new KafkaServer(config.kafka)
 
-  server.startup()
+  start()
+
+  def start(): Unit = {
+    server.startup()
+  }
 
   def stop(): Unit = {
     server.shutdown()
