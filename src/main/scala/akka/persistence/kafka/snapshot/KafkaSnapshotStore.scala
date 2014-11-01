@@ -10,6 +10,7 @@ import akka.persistence._
 import akka.persistence.JournalProtocol._
 import akka.persistence.kafka._
 import akka.persistence.kafka.MetadataConsumer.Broker
+import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.serialization.SerializationExtension
 import akka.util.Timeout
 
@@ -25,7 +26,7 @@ trait KafkaSnapshotStoreEndpoint extends Actor {
   val extension = Persistence(context.system)
   val publish = extension.settings.internal.publishPluginCommands
 
-  final def receive = {
+  def receive = {
     case LoadSnapshot(persistenceId, criteria, toSequenceNr) ⇒
       val p = sender
       loadAsync(persistenceId, criteria.limit(toSequenceNr)) map {
@@ -67,7 +68,20 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
 
   val serialization = SerializationExtension(context.system)
   val config = new KafkaSnapshotStoreConfig(context.system.settings.config.getConfig("kafka-snapshot-store"))
-  val brokers = allBrokers()
+  val brokerWatcher = new BrokerWatcher(config.zookeeperConfig, self)
+  var brokers: List[Broker] = brokerWatcher.start()
+
+  override def postStop(): Unit = {
+    brokerWatcher.stop()
+    super.postStop()
+  }
+
+  def localReceive: Receive = {
+    case BrokersUpdated(newBrokers) =>
+      brokers = newBrokers
+  }
+
+  override def receive: Receive = localReceive.orElse(super.receive)
 
   // Transient deletions only to pass TCK (persistent not supported)
   var rangeDeletions: RangeDeletions = Map.empty.withDefaultValue(SnapshotSelectionCriteria.None)

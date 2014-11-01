@@ -12,6 +12,17 @@ import org.I0Itec.zkclient.ZkClient
 object MetadataConsumer {
   object Broker {
     def toString(brokers: List[Broker]) = brokers.mkString(",")
+
+    def fromString(asString: String): Option[Broker] = {
+      Json.parseFull(asString) match {
+        case Some(m) =>
+          val brokerInfo = m.asInstanceOf[Map[String, Any]]
+          val host = brokerInfo.get("host").get.asInstanceOf[String]
+          val port = brokerInfo.get("port").get.asInstanceOf[Int]
+          Some(Broker.apply(host, port))
+        case None => None
+      }
+    }
   }
 
   case class Broker(host: String, port: Int) {
@@ -72,21 +83,6 @@ trait MetadataConsumer {
       }
     } finally {
       consumer.close()
-    }
-  }
-
-  def allBrokers(): List[Broker] = {
-    val zkConfig = config.zookeeperConfig
-    val client = new ZkClient(
-      zkConfig.zkConnect,
-      zkConfig.zkSessionTimeoutMs,
-      zkConfig.zkConnectionTimeoutMs,
-      ZKStringSerializer)
-
-    try {
-      ZkUtils.getAllBrokersInCluster(client).map(b => Broker(b.host, b.port)).toList
-    } finally {
-      client.close()
     }
   }
 }
