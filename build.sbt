@@ -4,7 +4,9 @@ name := "akka-persistence-kafka"
 
 version := "0.3.3"
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.11.5"
+
+crossScalaVersions := Seq("2.10.4", "2.11.5")
 
 scalacOptions += "-target:jvm-1.7"
 
@@ -18,9 +20,9 @@ libraryDependencies ++= Seq(
   //
   // Compile dependencies
   //
-  "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.6",
+  "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.9",
   "org.apache.curator" % "curator-test" % "2.5.0",
-  "org.apache.kafka"  %% "kafka" % "0.8.1.1",
+  "org.apache.kafka"  %% "kafka" % "0.8.2-beta",
   //
   // Test dependencies
   //
