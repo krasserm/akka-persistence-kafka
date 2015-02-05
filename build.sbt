@@ -22,7 +22,7 @@ libraryDependencies ++= Seq(
   //
   "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.9",
   "org.apache.curator" % "curator-test" % "2.5.0",
-  "org.apache.kafka"  %% "kafka" % "0.8.2-beta",
+  "org.apache.kafka"  %% "kafka" % "0.8.2.0",
   //
   // Test dependencies
   //

@@ -14,7 +14,7 @@ To include the Kafka plugins into your `sbt` project, add the following lines to
 
     libraryDependencies += "com.github.krasserm" %% "akka-persistence-kafka" % "0.3.4"
 
-This version of `akka-persistence-kafka` depends on Kafka 0.8.2-beta, Akka 2.3.9 and is cross-built against Scala 2.10.4 and 2.11.4. A complete list of released versions is [here](https://github.com/krasserm/akka-persistence-kafka/wiki/Releases).
+This version of `akka-persistence-kafka` depends on Kafka 0.8.2-beta, Akka 2.3.9 and is cross-built against Scala 2.10.4 and 2.11.5. A complete list of released versions is [here](https://github.com/krasserm/akka-persistence-kafka/wiki/Releases).
 
 Usage hints
 -----------
