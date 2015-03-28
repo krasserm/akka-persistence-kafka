@@ -16,6 +16,8 @@ resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
 parallelExecution in Test := false
 
+publishArtifact in Test := true
+
 libraryDependencies ++= Seq(
   //
   // Compile dependencies
