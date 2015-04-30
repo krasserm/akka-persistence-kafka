@@ -60,7 +60,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
 
   def asyncWriteMessages(messages: Seq[PersistentRepr]): Future[Unit] = {
     val sends = messages.groupBy(_.persistenceId).map {
-      case (pid, msgs) => writerFor(pid).ask(messages)(writeTimeout)
+      case (pid, msgs) => writerFor(pid).ask(msgs)(writeTimeout)
     }
     Future.sequence(sends).map(_ => ())
   }
