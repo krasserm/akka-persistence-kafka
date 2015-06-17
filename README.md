@@ -63,7 +63,7 @@ package akka.persistence.kafka
 case class Event(persistenceId: String, sequenceNr: Long, data: Any)
 ```
 
-where `data` is the actual event written by a persistent actor (by calling `persist` or `persistAsync`), `sequenceNr` is the event's sequence number and `persistenceId` the id of the persistent actor. `Event` objects are serialized with a [protobuf](https://github.com/google/protobuf) serializer and event `data` serialization is delegated to [Akka serialization](http://doc.akka.io/docs/akka/2.3.11/scala/serialization.html). A [custom serializer](http://doc.akka.io/docs/akka/2.3.11/scala/persistence.html#custom-serialization) configured for [journal topics](#journal-topics) is automatically used for user-defined topics too.
+where `data` is the actual event written by a persistent actor (by calling `persist` or `persistAsync`), `sequenceNr` is the event's sequence number and `persistenceId` the id of the persistent actor. `Event` objects are serialized with a [protobuf](https://github.com/google/protobuf) serializer and event `data` serialization can be customized with a [user-defined serializer](http://doc.akka.io/docs/akka/2.3.11/scala/persistence.html#custom-serialization) in the same way as for [journal topics](#journal-topics). Custom serializer configurations always apply to both, journal topics and user-defined topics.
 
 For publishing events to user-defined topics the journal plugin uses an `EventTopicMapper`: 
 
