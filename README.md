@@ -1,7 +1,7 @@
 Kafka Plugins for Akka Persistence
 ==================================
 
-Replicated [Akka Persistence](http://doc.akka.io/docs/akka/2.3.9/scala/persistence.html) journal and snapshot store backed by [Apache Kafka](http://kafka.apache.org/).
+Replicated [Akka Persistence](http://doc.akka.io/docs/akka/2.3.11/scala/persistence.html) journal and snapshot store backed by [Apache Kafka](http://kafka.apache.org/).
 
 [![Build Status](https://travis-ci.org/krasserm/akka-persistence-kafka.svg?branch=travis)](https://travis-ci.org/krasserm/akka-persistence-kafka)
 
@@ -12,9 +12,9 @@ To include the Kafka plugins into your `sbt` project, add the following lines to
 
     resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
-    libraryDependencies += "com.github.krasserm" %% "akka-persistence-kafka" % "0.3.4"
+    libraryDependencies += "com.github.krasserm" %% "akka-persistence-kafka" % “0.4”
 
-This version of `akka-persistence-kafka` depends on Kafka 0.8.2-beta, Akka 2.3.9 and is cross-built against Scala 2.10.4 and 2.11.5. A complete list of released versions is [here](https://github.com/krasserm/akka-persistence-kafka/wiki/Releases).
+This version of `akka-persistence-kafka` depends on Kafka 0.8.2.1, Akka 2.3.11 and is cross-built against Scala 2.10.4 and 2.11.6. A complete list of released versions is [here](https://github.com/krasserm/akka-persistence-kafka/wiki/Releases).
 
 Usage hints
 -----------
@@ -44,7 +44,7 @@ This will run the journal plugin with default settings and connect to a Zookeepe
 
 ### Journal topics
 
-For each persistent actor, the plugin creates a Kafka topic where the topic name equals the actor's `persistenceId` (only if it contains alphanumeric, `.`, `-` or `_` characters, otherwise, all other characters are replaced by `_`). Events published to these topics are serialized `akka.persistence.PersistentRepr` objects (see [journal plugin API](http://doc.akka.io/docs/akka/2.3.9/scala/persistence.html#journal-plugin-api)). Serialization of `PersistentRepr` objects can be [customized](http://doc.akka.io/docs/akka/2.3.9/scala/persistence.html#custom-serialization). Journal topics are mainly intended for internal use (for recovery of persistent actors) but can also be [consumed externally](#external-consumers). 
+For each persistent actor, the plugin creates a Kafka topic where the topic name equals the actor's `persistenceId` (only if it contains alphanumeric, `.`, `-` or `_` characters, otherwise, all other characters are replaced by `_`). Events published to these topics are serialized `akka.persistence.PersistentRepr` objects (see [journal plugin API](http://doc.akka.io/docs/akka/2.3.9/scala/persistence.html#journal-plugin-api)). Serialization of `PersistentRepr` objects can be [customized](http://doc.akka.io/docs/akka/2.3.11/scala/persistence.html#custom-serialization). Journal topics are mainly intended for internal use (for recovery of persistent actors) but can also be [consumed externally](#external-consumers). 
 
 ### User-defined topics
 
@@ -63,11 +63,7 @@ package akka.persistence.kafka
 case class Event(persistenceId: String, sequenceNr: Long, data: Any)
 ```
 
-where `data` is the actual event written by a persistent actor (by calling `persist` or `persistAsync`), `sequenceNr` is the event's sequence number and `persistenceId` the id of the persistent actor. By default, `Event` objects are serialized with `DefaultEventEncoder` (using Java serialization) which is configured in the [reference configuration](#reference-configuration) as follows:
-                                                                                                                                                                                                                
-    kafka-journal.event.producer.serializer.class = "akka.persistence.kafka.DefaultEventEncoder"
-
-Applications can implement and configure their own `kafka.serializer.Encoder` to customize `Event` serialization. 
+where `data` is the actual event written by a persistent actor (by calling `persist` or `persistAsync`), `sequenceNr` is the event's sequence number and `persistenceId` the id of the persistent actor. `Event` objects are serialized with a [protobuf](https://github.com/google/protobuf) serializer and event `data` serialization is delegated to [Akka serialization](http://doc.akka.io/docs/akka/2.3.11/scala/serialization.html). A [custom serializer](http://doc.akka.io/docs/akka/2.3.11/scala/persistence.html#custom-serialization) configured for [journal topics](#journal-topics) is automatically used for user-defined topics too.
 
 For publishing events to user-defined topics the journal plugin uses an `EventTopicMapper`: 
 
@@ -125,7 +121,7 @@ The following example shows how to consume `Event`s from a user-defined topic wi
 ```scala
 import java.util.Properties
 
-import akka.persistence.kafka.{DefaultEventDecoder, Event}
+import akka.persistence.kafka.{EventDecoder, Event}
 
 import kafka.consumer.{Consumer, ConsumerConfig}
 import kafka.serializer.StringDecoder
@@ -135,9 +131,11 @@ props.put("group.id", "consumer-1")
 props.put("zookeeper.connect", "localhost:2181")
 // ...
 
+val system = ActorSystem("consumer")
+
 val consConn = Consumer.create(new ConsumerConfig(props))
 val streams = consConn.createMessageStreams(Map("topic-a-2" -> 1),
-  keyDecoder = new StringDecoder, valueDecoder = new DefaultEventDecoder)
+  keyDecoder = new StringDecoder, valueDecoder = new EventDecoder(system))
 
 streams("topic-a-2")(0).foreach { mm =>
   val event: Event = mm.message
@@ -232,7 +230,14 @@ If you want to run a Kafka cluster on a single node, you may find [this article]
 
 ### Test server
 
-Applications may also start a single Kafka and Zookeeper instance with the `TestServer` class.
+To use the test server, the following additional dependencies must be added to `build.sbt`:
+
+    libraryDependencies ++= Seq(
+      "com.github.krasserm" %% "akka-persistence-kafka" % "0.4" % "test" classifier "tests",
+      "org.apache.curator" % "curator-test" % "2.7.1" % "test"
+    )
+
+This makes the `TestServer` class available which can be used to start a single Kafka and Zookeeper instance:
 
 ```scala
 import akka.persistence.kafka.server.TestServer
@@ -347,8 +352,6 @@ Reference configuration
         request.required.acks = 0
     
         topic.mapper.class = "akka.persistence.kafka.DefaultEventTopicMapper"
-    
-        serializer.class = "akka.persistence.kafka.DefaultEventEncoder"
     
         key.serializer.class = "kafka.serializer.StringEncoder"
     

@@ -1,0 +1,14 @@
+option java_package = "akka.persistence.kafka.journal";
+option optimize_for = SPEED;
+
+message EventFormat {
+  optional string persistenceId = 1;
+  optional int64 sequenceNr = 2;
+  optional EventDataFormat data = 3;
+}
+
+message EventDataFormat {
+  optional int32 serializerId = 1;
+  optional bytes data = 2;
+  optional bytes dataManifest = 3;
+}

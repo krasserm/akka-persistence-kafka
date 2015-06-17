@@ -65,7 +65,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   val server = new TestServer(serverConfig)
 
   val serialization = SerializationExtension(system)
-  val eventDecoder = new DefaultEventDecoder
+  val eventDecoder = new EventDecoder(system)
 
   val persistence = Persistence(system)
   val journal = persistence.journalFor(null)

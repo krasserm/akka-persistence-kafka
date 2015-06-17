@@ -1,7 +1,7 @@
 option java_package = "akka.persistence.kafka.snapshot";
 option optimize_for = SPEED;
 
-message SnapshotMetadata {
+message SnapshotMetadataFormat {
   optional string persistenceId = 1;
   optional int64 sequenceNr = 2;
   optional int64 timestamp = 3;

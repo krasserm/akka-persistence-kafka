@@ -173,7 +173,7 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
       m <- messages
       e = Event(m.persistenceId, m.sequenceNr, m.payload)
       t <- config.evtTopicMapper.topicsFor(e)
-    } yield new KeyedMessage(t, e.persistenceId, e)
+    } yield new KeyedMessage(t, e.persistenceId, config.serialization.serialize(e).get)
 
     msgProducer.send(keyedMsgs: _*)
     evtProducer.send(keyedEvents: _*)
@@ -187,5 +187,5 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
 
   private def createMessageProducer() = new Producer[String, Array[Byte]](config.journalProducerConfig)
 
-  private def createEventProducer() = new Producer[String, Event](config.eventProducerConfig)
+  private def createEventProducer() = new Producer[String, Array[Byte]](config.eventProducerConfig)
 }

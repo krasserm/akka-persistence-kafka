@@ -1,11 +1,11 @@
 package akka.persistence.kafka
 
-import java.io._
-
-import scala.collection.immutable.Seq
+import akka.actor.ActorSystem
+import akka.serialization.SerializationExtension
 
 import kafka.serializer._
-import kafka.utils.VerifiableProperties
+
+import scala.collection.immutable.Seq
 
 /**
  * Event published to user-defined topics.
@@ -37,23 +37,9 @@ class EmptyEventTopicMapper extends EventTopicMapper {
   def topicsFor(event: Event): Seq[String] = Nil
 }
 
-class DefaultEventEncoder(props: VerifiableProperties = null) extends Encoder[Event] {
-  def toBytes(event: Event): Array[Byte] = {
-    val bos = new ByteArrayOutputStream
-    val oos = new ObjectOutputStream(bos)
-    oos.writeObject(event)
-    oos.close()
-    bos.toByteArray
-  }
-}
+class EventDecoder(system: ActorSystem) extends Decoder[Event] {
+  val serialization = SerializationExtension(system)
 
-class DefaultEventDecoder(props: VerifiableProperties = null) extends Decoder[Event] {
-  def fromBytes(bytes: Array[Byte]): Event = {
-    val bis = new ByteArrayInputStream(bytes)
-    val ois = new ObjectInputStream(bis)
-    val obj = ois.readObject().asInstanceOf[Event]
-    ois.close()
-    obj
-  }
+  def fromBytes(bytes: Array[Byte]): Event =
+    serialization.deserialize(bytes, classOf[Event]).get
 }
-

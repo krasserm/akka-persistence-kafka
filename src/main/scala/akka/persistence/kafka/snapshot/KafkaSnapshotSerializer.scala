@@ -4,7 +4,7 @@ import java.io._
 
 import akka.actor._
 import akka.persistence._
-import akka.persistence.kafka.snapshot.SnapshotMetadataFormat.{SnapshotMetadata => ProtoSnapshotMetadata}
+import akka.persistence.kafka.snapshot.SnapshotFormats.SnapshotMetadataFormat
 import akka.persistence.serialization.Snapshot
 import akka.serialization._
 
@@ -19,8 +19,8 @@ class KafkaSnapshotSerializer(system: ExtendedActorSystem) extends Serializer {
   def includeManifest: Boolean = false
 
   def toBinary(o: AnyRef): Array[Byte] = o match {
-    case ks: KafkaSnapshot ⇒ snapshotToBinary(ks)
-    case _                   ⇒ throw new IllegalArgumentException(s"Can't serialize object of type ${o.getClass}")
+    case ks: KafkaSnapshot => snapshotToBinary(ks)
+    case _                 => throw new IllegalArgumentException(s"Can't serialize object of type ${o.getClass}")
   }
 
   def snapshotToBinary(ks: KafkaSnapshot): Array[Byte] = {
@@ -52,7 +52,7 @@ class KafkaSnapshotSerializer(system: ExtendedActorSystem) extends Serializer {
   }
 
   def snapshotMetadataToBinary(metadata: SnapshotMetadata): Array[Byte] = {
-    ProtoSnapshotMetadata.newBuilder()
+    SnapshotMetadataFormat.newBuilder()
       .setPersistenceId(metadata.persistenceId)
       .setSequenceNr(metadata.sequenceNr)
       .setTimestamp(metadata.timestamp)
@@ -61,7 +61,7 @@ class KafkaSnapshotSerializer(system: ExtendedActorSystem) extends Serializer {
   }
 
   def snapshotMetadataFromBinary(metadataBytes: Array[Byte]): SnapshotMetadata = {
-    val md = ProtoSnapshotMetadata.parseFrom(metadataBytes)
+    val md = SnapshotMetadataFormat.parseFrom(metadataBytes)
     SnapshotMetadata(
       md.getPersistenceId,
       md.getSequenceNr,

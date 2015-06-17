@@ -6,7 +6,7 @@ import scala.collection.immutable.Seq
 
 import akka.actor._
 import akka.persistence.{PersistenceFailure, PersistentActor, PersistentRepr, RecoveryFailure, SaveSnapshotFailure, SaveSnapshotSuccess, SnapshotOffer}
-import akka.persistence.kafka.{DefaultEventDecoder, Event, EventTopicMapper}
+import akka.persistence.kafka.{EventDecoder, Event, EventTopicMapper}
 import akka.persistence.kafka.server.{TestServerConfig, TestServer}
 import akka.serialization.SerializationExtension
 
@@ -74,9 +74,11 @@ object ExampleConsumer extends App {
   props.put("auto.offset.reset", "smallest")
   props.put("auto.commit.enable", "false")
 
+  val system = ActorSystem("consumer")
+
   val consConn = Consumer.create(new ConsumerConfig(props))
   val streams = consConn.createMessageStreams(Map("topic-a-2" -> 1),
-    keyDecoder = new StringDecoder, valueDecoder = new DefaultEventDecoder)
+    keyDecoder = new StringDecoder, valueDecoder = new EventDecoder(system))
 
   streams("topic-a-2")(0).foreach { mm =>
     val event: Event = mm.message
