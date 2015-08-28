@@ -5,63 +5,25 @@ import scala.concurrent.duration._
 import scala.util._
 
 import akka.actor._
-import akka.pattern.{PromiseActorRef, pipe}
+import akka.pattern.{ask, pipe}
 import akka.persistence._
 import akka.persistence.JournalProtocol._
+import akka.persistence.snapshot.SnapshotStore
 import akka.persistence.kafka._
 import akka.persistence.kafka.MetadataConsumer.Broker
 import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.serialization.SerializationExtension
 import akka.util.Timeout
 
+import akka.persistence.kafka.journal.KafkaJournalProtocol._
+
 import _root_.kafka.producer.{Producer, KeyedMessage}
 
-/**
- * Optimized and fully async version of [[akka.persistence.snapshot.SnapshotStore]].
- */
-trait KafkaSnapshotStoreEndpoint extends Actor {
+class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorLogging {
   import SnapshotProtocol._
   import context.dispatcher
 
   val extension = Persistence(context.system)
-  val publish = extension.settings.internal.publishPluginCommands
-
-  def receive = {
-    case LoadSnapshot(persistenceId, criteria, toSequenceNr) ⇒
-      val p = sender
-      loadAsync(persistenceId, criteria.limit(toSequenceNr)) map {
-        sso ⇒ LoadSnapshotResult(sso, toSequenceNr)
-      } recover {
-        case e ⇒ LoadSnapshotResult(None, toSequenceNr)
-      } pipeTo (p)
-    case SaveSnapshot(metadata, snapshot) ⇒
-      val p = sender
-      val md = metadata.copy(timestamp = System.currentTimeMillis)
-      saveAsync(md, snapshot) map {
-        _ ⇒ SaveSnapshotSuccess(md)
-      } recover {
-        case e ⇒ SaveSnapshotFailure(metadata, e)
-      } pipeTo (p)
-    case d @ DeleteSnapshot(metadata) ⇒
-      deleteAsync(metadata) onComplete {
-        case Success(_) => if (publish) context.system.eventStream.publish(d)
-        case Failure(_) =>
-      }
-    case d @ DeleteSnapshots(persistenceId, criteria) ⇒
-      deleteAsync(persistenceId, criteria) onComplete {
-        case Success(_) => if (publish) context.system.eventStream.publish(d)
-        case Failure(_) =>
-      }
-  }
-
-  def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]]
-  def saveAsync(metadata: SnapshotMetadata, snapshot: Any): Future[Unit]
-  def deleteAsync(metadata: SnapshotMetadata): Future[Unit]
-  def deleteAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Unit]
-}
-
-class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsumer with ActorLogging {
-  import context.dispatcher
 
   type RangeDeletions = Map[String, SnapshotSelectionCriteria]
   type SingleDeletions = Map[String, List[SnapshotMetadata]]
@@ -81,7 +43,7 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
       brokers = newBrokers
   }
 
-  override def receive: Receive = localReceive.orElse(super.receive)
+  override def receivePluginInternal: Receive = localReceive.orElse(super.receivePluginInternal)
 
   // Transient deletions only to pass TCK (persistent not supported)
   var rangeDeletions: RangeDeletions = Map.empty.withDefaultValue(SnapshotSelectionCriteria.None)
@@ -113,11 +75,14 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
   def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
     val singleDeletions = this.singleDeletions
     val rangeDeletions = this.rangeDeletions
+
     for {
       highest <- if (config.ignoreOrphan) highestJournalSequenceNr(persistenceId) else Future.successful(Long.MaxValue)
       adjusted = if (config.ignoreOrphan &&
         highest < criteria.maxSequenceNr &&
         highest > 0L) criteria.copy(maxSequenceNr = highest) else criteria
+      // highest  <- Future.successful(Long.MaxValue)
+      // adjusted = criteria
       snapshot <- Future {
         val topic = snapshotTopic(persistenceId)
 
@@ -148,17 +113,13 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
 
   /**
    * Fetches the highest sequence number for `persistenceId` from the journal actor.
-   */
+    */
+
   private def highestJournalSequenceNr(persistenceId: String): Future[Long] = {
-    val journal = extension.journalFor(persistenceId)
-    val promise = Promise[Any]()
-
-    // We need to use a PromiseActorRef here instead of ask because the journal doesn't reply to ReadHighestSequenceNr requests
-    val ref = PromiseActorRef(extension.system.provider, Timeout(config.consumerConfig.socketTimeoutMs.millis), journal.toString)
-
-    journal ! ReadHighestSequenceNr(0L, persistenceId, ref)
-
-    ref.result.future.flatMap {
+    val journal = extension.journalFor(null);
+    implicit val timeout = Timeout(5 seconds)
+    val res = journal ? ReadHighestSequenceNr(0L, persistenceId, self)
+    res.flatMap {
       case ReadHighestSequenceNrSuccess(snr) => Future.successful(snr)
       case ReadHighestSequenceNrFailure(err) => Future.failed(err)
     }

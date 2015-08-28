@@ -5,7 +5,7 @@ import java.util.Properties
 import scala.collection.immutable.Seq
 
 import akka.actor._
-import akka.persistence.{PersistenceFailure, PersistentActor, PersistentRepr, RecoveryFailure, SaveSnapshotFailure, SaveSnapshotSuccess, SnapshotOffer}
+import akka.persistence.{PersistentActor, PersistentRepr, SaveSnapshotFailure, SaveSnapshotSuccess, SnapshotOffer}
 import akka.persistence.kafka.{EventDecoder, Event, EventTopicMapper}
 import akka.persistence.kafka.server.{TestServerConfig, TestServer}
 import akka.serialization.SerializationExtension
@@ -28,8 +28,6 @@ class ExampleProcessor(val persistenceId: String) extends PersistentActor {
       println(s"snapshot saved (metadata = ${md})")
     case SaveSnapshotFailure(md, e) =>
       println(s"snapshot saving failed (metadata = ${md}, error = ${e.getMessage})")
-    case PersistenceFailure(payload, snr, e) =>
-      println(s"persistence failed (payload = ${payload}, sequenceNr = ${snr}, error = ${e.getMessage})")
   }
 
   def receiveRecover: Receive = {
@@ -38,8 +36,6 @@ class ExampleProcessor(val persistenceId: String) extends PersistentActor {
     case SnapshotOffer(md, snapshot: Int) =>
       state = snapshot
       println(s"state initialized: ${state} (metadata = ${md})")
-    case RecoveryFailure(e) =>
-      println(s"recovery failed (error = ${e.getMessage})")
   }
 
   def update(i: Increment): Unit = {

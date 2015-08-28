@@ -6,8 +6,8 @@ import akka.persistence.journal.JournalSpec
 import akka.persistence.kafka.KafkaCleanup
 import akka.persistence.kafka.server._
 
-class KafkaJournalSpec extends JournalSpec with KafkaCleanup {
-  lazy val config = ConfigFactory.parseString(
+class KafkaJournalSpec extends JournalSpec (
+  config = ConfigFactory.parseString(
     """
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
@@ -15,7 +15,7 @@ class KafkaJournalSpec extends JournalSpec with KafkaCleanup {
       |kafka-journal.event.producer.request.required.acks = 1
       |test-server.zookeeper.dir = target/test/zookeeper
       |test-server.kafka.log.dirs = target/test/kafka
-    """.stripMargin)
+    """.stripMargin)) with KafkaCleanup {
 
   val systemConfig = system.settings.config
   val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
