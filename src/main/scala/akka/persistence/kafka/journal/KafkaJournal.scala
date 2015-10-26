@@ -67,10 +67,11 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   var deletions: Deletions = Map.empty
 
   def asyncWriteMessages(messages: Seq[AtomicWrite]): Future[Seq[Try[Unit]]] = {
-    val writes: Seq[Future[Unit]] = messages.map(_.payload.groupBy(_.persistenceId).map {
-      case (pid, msgs) => writerFor(pid).ask(msgs)(writeTimeout)
-    }).map(i => Future.sequence(i).map(_ => ()))
-    Future.sequence(writes).map(sends => sends.map(send => Try(send).map(_ => ())))
+    val writes: Seq[Future[Try[Unit]]] = messages.map(
+      // atomic write contains only writes for same persistence id
+      aw => writerFor(aw.persistenceId).ask(aw.payload)(writeTimeout).mapTo[Try[Unit]]
+    )
+    Future.sequence(writes)
   }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
@@ -156,23 +157,25 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
       evtProducer = createEventProducer()
 
     case messages: Seq[PersistentRepr] =>
-      writeMessages(messages)
-      sender ! ()
+      val result = writeMessages(messages)
+      sender ! result 
   }
 
-  def writeMessages(messages: Seq[PersistentRepr]): Unit = {
-    val keyedMsgs = for {
-      m <- messages
-    } yield new KeyedMessage[String, Array[Byte]](journalTopic(m.persistenceId), "static", config.serialization.serialize(m).get)
+  def writeMessages(messages: Seq[PersistentRepr]): Try[Unit] = {
+    Try {
+      val keyedMsgs = for {
+        m <- messages
+      } yield new KeyedMessage[String, Array[Byte]](journalTopic(m.persistenceId), "static", config.serialization.serialize(m).get)
 
-    val keyedEvents = for {
-      m <- messages
-      e = Event(m.persistenceId, m.sequenceNr, m.payload)
-      t <- config.evtTopicMapper.topicsFor(e)
-    } yield new KeyedMessage(t, e.persistenceId, config.serialization.serialize(e).get)
+      val keyedEvents = for {
+        m <- messages
+        e = Event(m.persistenceId, m.sequenceNr, m.payload)
+        t <- config.evtTopicMapper.topicsFor(e)
+      } yield new KeyedMessage(t, e.persistenceId, config.serialization.serialize(e).get)
 
-    msgProducer.send(keyedMsgs: _*)
-    evtProducer.send(keyedEvents: _*)
+      msgProducer.send(keyedMsgs: _*)
+      evtProducer.send(keyedEvents: _*)
+    }
   }
 
   override def postStop(): Unit = {
