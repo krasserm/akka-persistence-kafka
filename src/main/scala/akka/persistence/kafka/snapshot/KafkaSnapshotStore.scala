@@ -86,9 +86,11 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
       snapshot <- Future {
         val topic = snapshotTopic(persistenceId)
 
+        // if timestamp was unset on delete, matches only on same sequence nr
         def matcher(snapshot: KafkaSnapshot): Boolean = snapshot.matches(adjusted) &&
           !snapshot.matches(rangeDeletions(persistenceId)) &&
-          !singleDeletions(persistenceId).contains(snapshot.metadata)
+          !singleDeletions(persistenceId).contains(snapshot.metadata) &&
+          !singleDeletions(persistenceId).filter(_.timestamp == 0L).map(_.sequenceNr).contains(snapshot.metadata.sequenceNr)
 
         leaderFor(topic, brokers) match {
           case Some(Broker(host, port)) => load(host, port, topic, matcher).map(s => SelectedSnapshot(s.metadata, s.snapshot))
