@@ -1,2 +1,33 @@
-.idea*
-target/
+syntax: glob
+
+*.class
+*~
+*.bak
+*.old
+*.ser
+
+# ides (eclipse,) conf files
+.settings
+.classpath
+.project
+.manager
+.metadata
+.scala_dependencies
+
+# building
+target
+runner
+build
+tmp
+temp
+dist
+build.log
+
+#local dependecies
+lib
+
+# other scms
+.svn
+.CVS
+.hg*
+
