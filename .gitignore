@@ -13,6 +13,7 @@ syntax: glob
 .manager
 .metadata
 .scala_dependencies
+.cache-*
 
 # building
 target
