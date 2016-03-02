@@ -15,11 +15,15 @@ object BrokerWatcher {
 
 class BrokerWatcher(zkConfig: ZKConfig, listener: ActorRef) {
 
-  lazy val zkClient = new ZkClient(
-    zkConfig.zkConnect,
-    zkConfig.zkSessionTimeoutMs,
-    zkConfig.zkConnectionTimeoutMs,
-    ZKStringSerializer)
+  lazy val zkClient = ZkUtils.createZkClient(zkConfig.zkConnect,
+                                             zkConfig.zkSessionTimeoutMs,
+                                             zkConfig.zkConnectionTimeoutMs)
+    
+//    new ZkClient(
+//    zkConfig.zkConnect,
+//    zkConfig.zkSessionTimeoutMs,
+//    zkConfig.zkConnectionTimeoutMs,
+//    ZKStringSerializer)
 
   lazy val childWatcher = new ChildDataWatcher[String](zkClient, ZkUtils.BrokerIdsPath, { d =>
     listener ! BrokersUpdated(buildBrokers(d))
