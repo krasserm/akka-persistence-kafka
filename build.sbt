@@ -25,6 +25,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka"   %% "akka-testkit"                  % "2.4.0" % Test,
   "commons-io"           % "commons-io"                    % "2.4"      % Test,
   "org.apache.kafka"    %% "kafka"                         % "0.8.2.1",
-  "org.apache.curator"   % "curator-test"                  % "2.7.1"    % Test
+  "org.apache.curator"   % "curator-test"                  % "2.7.1"    % Test,
+  "org.slf4j" 		 % "slf4j-log4j12" 		   % "1.7.21"	% Test,
+  "com.typesafe.akka" 	%% "akka-slf4j" 		   % "2.4.0"	% Test
 )
 

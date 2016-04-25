@@ -1,6 +1,6 @@
 package akka.persistence.kafka.journal
 
-import scala.collection.immutable.Seq
+import scala.collection.immutable
 import scala.util.Try
 
 import akka.persistence.journal.AsyncWriteJournal
@@ -19,6 +19,7 @@ import akka.persistence.kafka.MetadataConsumer.Broker
 import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.persistence.kafka.journal.KafkaJournalProtocol._
 import akka.util.Timeout
+import scala.util.Success
 
 class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLogging {
   import context.dispatcher
@@ -66,12 +67,16 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   // Transient deletions only to pass TCK (persistent not supported)
   var deletions: Deletions = Map.empty
 
-  def asyncWriteMessages(messages: Seq[AtomicWrite]): Future[Seq[Try[Unit]]] = {
-    val writes: Seq[Future[Try[Unit]]] = messages.map(
-      // atomic write contains only writes for same persistence id
-      aw => writerFor(aw.persistenceId).ask(aw.payload)(writeTimeout).mapTo[Try[Unit]]
-    )
-    Future.sequence(writes)
+  def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
+    
+    val writes = Future.sequence(messages.groupBy(_.persistenceId).map {
+      case (pid,aws) => {
+        val msgs = aws.map(aw => aw.payload).flatten
+        writerFor(pid).ask(msgs)(writeTimeout).mapTo[Seq[Try[Unit]]]
+      }
+    }).map { x => x.flatten.to[collection.immutable.Seq] }
+    
+    writes
   }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
@@ -161,21 +166,21 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
       sender ! result 
   }
 
-  def writeMessages(messages: Seq[PersistentRepr]): Try[Unit] = {
-    Try {
-      val keyedMsgs = for {
-        m <- messages
-      } yield new KeyedMessage[String, Array[Byte]](journalTopic(m.persistenceId), "static", config.serialization.serialize(m).get)
+  def writeMessages(messages: Seq[PersistentRepr]): Seq[Try[Unit]] = {
+    val keyedMsgs = for {
+      m <- messages
+    } yield new KeyedMessage[String, Array[Byte]](journalTopic(m.persistenceId), "static", config.serialization.serialize(m).get)
 
-      val keyedEvents = for {
-        m <- messages
-        e = Event(m.persistenceId, m.sequenceNr, m.payload)
-        t <- config.evtTopicMapper.topicsFor(e)
-      } yield new KeyedMessage(t, e.persistenceId, config.serialization.serialize(e).get)
-
-      msgProducer.send(keyedMsgs: _*)
-      evtProducer.send(keyedEvents: _*)
-    }
+    val keyedEvents = for {
+      m <- messages
+      e = Event(m.persistenceId, m.sequenceNr, m.payload)
+      t <- config.evtTopicMapper.topicsFor(e)
+    } yield new KeyedMessage(t, e.persistenceId, config.serialization.serialize(e).get)
+    
+    msgProducer.send(keyedMsgs: _*)
+    evtProducer.send(keyedEvents: _*)
+    
+    keyedMsgs.map(_ => Success())    
   }
 
   override def postStop(): Unit = {
