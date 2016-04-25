@@ -2,7 +2,7 @@ organization := "com.github.krasserm"
 
 name := "akka-persistence-kafka"
 
-version := "0.5"
+version := "0.5-ad2f6df24dd76def58d255203befaed71732625c"
 
 scalaVersion := "2.11.6"
 
@@ -30,3 +30,5 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" 	%% "akka-slf4j" 		   % "2.4.0"	% Test
 )
 
+publishTo := Some("Bintray API Realm" at "https://api.bintray.com/maven/worldline-messaging-org/maven/akka-persistence-kafka")
+credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
