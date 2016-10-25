@@ -5,6 +5,7 @@ import com.typesafe.config.ConfigFactory
 import akka.persistence.journal.JournalSpec
 import akka.persistence.kafka.KafkaCleanup
 import akka.persistence.kafka.server._
+import akka.persistence.CapabilityFlag
 
 class KafkaJournalSpec extends JournalSpec (
   config = ConfigFactory.parseString(
@@ -20,7 +21,11 @@ class KafkaJournalSpec extends JournalSpec (
   val systemConfig = system.settings.config
   val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
   val server = new TestServer(serverConfig)
-
+  
+  override def supportsAtomicPersistAllOfSeveralEvents: Boolean = false
+  
+  override protected def supportsRejectingNonSerializableObjects: CapabilityFlag = CapabilityFlag.off()
+  
   override protected def afterAll(): Unit = {
     server.stop()
     super.afterAll()

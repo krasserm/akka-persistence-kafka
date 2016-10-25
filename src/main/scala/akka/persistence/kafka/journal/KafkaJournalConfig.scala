@@ -16,7 +16,7 @@ class KafkaJournalConfig(config: Config) extends MetadataConsumerConfig(config) 
     config.getInt("write-concurrency")
 
   val eventTopicMapper: EventTopicMapper =
-    Utils.createObject[EventTopicMapper](config.getString("event.producer.topic.mapper.class"))
+    CoreUtils.createObject[EventTopicMapper](config.getString("event.producer.topic.mapper.class"))
 
   def journalProducerConfig(brokers: List[Broker]): ProducerConfig =
     new ProducerConfig(configToProperties(config.getConfig("producer"),

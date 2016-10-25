@@ -4,7 +4,7 @@ package akka.persistence.kafka
 import akka.actor.ActorRef
 import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.persistence.kafka.MetadataConsumer.Broker
-import kafka.utils.{ZkUtils, ZKStringSerializer, ZKConfig}
+import kafka.utils.{ZkUtils, ZKConfig}
 import org.I0Itec.zkclient.ZkClient
 
 object BrokerWatcher {
@@ -15,11 +15,11 @@ object BrokerWatcher {
 
 class BrokerWatcher(zkConfig: ZKConfig, listener: ActorRef) {
 
-  lazy val zkClient = new ZkClient(
+  
+  lazy val zkClient = ZkUtils.createZkClient(
     zkConfig.zkConnect,
     zkConfig.zkSessionTimeoutMs,
-    zkConfig.zkConnectionTimeoutMs,
-    ZKStringSerializer)
+    zkConfig.zkConnectionTimeoutMs)
 
   lazy val childWatcher = new ChildDataWatcher[String](zkClient, ZkUtils.BrokerIdsPath, { d =>
     listener ! BrokersUpdated(buildBrokers(d))

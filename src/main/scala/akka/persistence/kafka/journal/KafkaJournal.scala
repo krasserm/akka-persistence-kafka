@@ -21,6 +21,8 @@ import akka.persistence.kafka.journal.KafkaJournalProtocol._
 import akka.util.Timeout
 import scala.util.Success
 
+private case class SeqOfPersistentReprContainer(messages: Seq[PersistentRepr])
+
 class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLogging {
   import context.dispatcher
 
@@ -72,7 +74,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
     val writes = Future.sequence(messages.groupBy(_.persistenceId).map {
       case (pid,aws) => {
         val msgs = aws.map(aw => aw.payload).flatten
-        writerFor(pid).ask(msgs)(writeTimeout).mapTo[Seq[Try[Unit]]]
+        writerFor(pid).ask(SeqOfPersistentReprContainer(msgs))(writeTimeout).mapTo[Seq[Try[Unit]]]
       }
     }).map { x => x.flatten.to[collection.immutable.Seq] }
     
@@ -135,7 +137,8 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   }
 
   def persistentIterator(host: String, port: Int, topic: String, offset: Long): Iterator[PersistentRepr] = {
-    new MessageIterator(host, port, topic, config.partition, offset, config.consumerConfig).map { m =>
+    val adjustedOffset = if(offset < 0) 0 else offset
+    new MessageIterator(host, port, topic, config.partition, adjustedOffset, config.consumerConfig).map { m =>
       serialization.deserialize(MessageUtil.payloadBytes(m), classOf[PersistentRepr]).get
     }
   }
@@ -161,8 +164,8 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
       msgProducer = createMessageProducer()
       evtProducer = createEventProducer()
 
-    case messages: Seq[PersistentRepr] =>
-      val result = writeMessages(messages)
+    case messages: SeqOfPersistentReprContainer =>
+      val result = writeMessages(messages.messages)
       sender ! result 
   }
 
