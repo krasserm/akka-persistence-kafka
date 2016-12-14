@@ -2,7 +2,7 @@ organization := "com.github.krasserm"
 
 name := "akka-persistence-kafka"
 
-version := "0.5-c47a57e6d30ac65f7e5883af98a0691d749b66ec"
+version := "0.5-cedb5ec150224ebe15c03470e98bb6578a4228f2"
 
 scalaVersion := "2.11.6"
 
