@@ -2,7 +2,7 @@ organization := "com.github.krasserm"
 
 name := "akka-persistence-kafka"
 
-version := "0.5-cedb5ec150224ebe15c03470e98bb6578a4228f2"
+version := "0.5-8bfa43ceb4f522e036adf72d2ee33b180a1ee502"
 
 scalaVersion := "2.12.1"
 
@@ -39,3 +39,5 @@ libraryDependencies ++= Seq(
 
 publishTo := Some("Bintray API Realm" at "https://api.bintray.com/maven/worldline-messaging-org/maven/akka-persistence-kafka")
 //credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
+
+licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))
