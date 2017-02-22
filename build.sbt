@@ -16,14 +16,14 @@ publishArtifact in Test := true
 
 libraryDependencies ++= Seq(
   "com.google.protobuf"  % "protobuf-java"                 % "2.5.0",
-  "com.typesafe.akka"   %% "akka-persistence"              % "2.4.16",
-  "com.typesafe.akka"   %% "akka-persistence-tck"          % "2.4.16" % Test,
-  "com.typesafe.akka"   %% "akka-testkit"                  % "2.4.16" % Test,
+  "com.typesafe.akka"   %% "akka-persistence"              % "2.4.17",
+  "com.typesafe.akka"   %% "akka-persistence-tck"          % "2.4.17" % Test,
+  "com.typesafe.akka"   %% "akka-testkit"                  % "2.4.17" % Test,
   "commons-io"           % "commons-io"                    % "2.5"      % Test,
-  "org.apache.kafka"    %% "kafka"                         % "0.10.1.1",
+  "org.apache.kafka"    %% "kafka"                         % "0.10.2.0",
   "org.apache.curator"   % "curator-test"                  % "3.2.1"    % Test,
   "org.slf4j" 		 % "slf4j-log4j12" 		   % "1.7.22"	% Test,
-  "com.typesafe.akka" 	%% "akka-slf4j" 		   % "2.4.16"	% Test
+  "com.typesafe.akka" 	%% "akka-slf4j" 		   % "2.4.17"	% Test
 )
 
 /*artifactName := { (sv: ScalaVersion, module: ModuleID, artifact: Artifact) =>
