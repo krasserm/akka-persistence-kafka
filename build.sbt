@@ -16,9 +16,9 @@ publishArtifact in Test := true
 
 libraryDependencies ++= Seq(
   "com.google.protobuf"  % "protobuf-java"                 % "2.5.0",
-  "com.typesafe.akka"   %% "akka-persistence"              % "2.4.17",
-  "com.typesafe.akka"   %% "akka-persistence-tck"          % "2.4.17" % Test,
-  "com.typesafe.akka"   %% "akka-testkit"                  % "2.4.17" % Test,
+  "com.typesafe.akka"   %% "akka-persistence"              % "2.5.0",
+  "com.typesafe.akka"   %% "akka-persistence-tck"          % "2.5.0" % Test,
+  "com.typesafe.akka"   %% "akka-testkit"                  % "2.5.0" % Test,
   "commons-io"           % "commons-io"                    % "2.5"      % Test,
   "org.apache.kafka"    %% "kafka"                         % "0.10.2.0",
   "org.apache.curator"   % "curator-test"                  % "3.2.1"    % Test,

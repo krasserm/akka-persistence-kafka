@@ -77,7 +77,7 @@ class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) w
 
   override def afterAll(): Unit = {
     server.stop()
-    system.shutdown()
+    system.terminate()
     super.afterAll()
   }
 
