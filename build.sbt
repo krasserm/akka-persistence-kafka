@@ -38,6 +38,6 @@ libraryDependencies ++= Seq(
 }*/
 
 publishTo := Some("Bintray API Realm" at "https://api.bintray.com/maven/worldline-messaging-org/maven/akka-persistence-kafka")
-//credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
+credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
 
 licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))
