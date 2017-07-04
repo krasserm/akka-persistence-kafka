@@ -1,13 +1,12 @@
 package akka.persistence.kafka
 
 import scala.util._
-
 import kafka.api._
 import kafka.common._
 import kafka.consumer._
 import kafka.utils._
-
 import org.I0Itec.zkclient.ZkClient
+import org.apache.kafka.common.protocol.Errors
 
 object MetadataConsumer {
   object Broker {
@@ -57,10 +56,10 @@ trait MetadataConsumer {
     val topicMetadata = response.topicsMetadata(0)
 
     try {
-      topicMetadata.errorCode match {
-        case LeaderNotAvailableCode => None
-        case NoError => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
-        case anError => throw exceptionFor(anError)
+      topicMetadata.error match {
+        case Errors.LEADER_NOT_AVAILABLE => None
+        case Errors.NONE => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
+        case anError => throw anError.exception()
       }
     } finally {
       consumer.close()
@@ -78,8 +77,8 @@ trait MetadataConsumer {
 
     try {
       offsetPartitionResponse.error match {
-        case NoError => offsetPartitionResponse.offsets.head
-        case anError => throw exceptionFor(anError)
+        case Errors.NONE => offsetPartitionResponse.offsets.head
+        case anError => throw anError.exception()
       }
     } finally {
       consumer.close()
