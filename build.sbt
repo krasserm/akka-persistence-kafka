@@ -2,9 +2,9 @@ organization := "com.github.krasserm"
 
 name := "akka-persistence-kafka"
 
-version := "0.5-5419673579619aed5285ced6e190131bae7776b9"
+version := "0.6"
 
-scalaVersion := "2.12.1"
+scalaVersion := "2.12.3"
 
 crossScalaVersions := Seq("2.10.4", "2.11.6", "2.12.1")
 
@@ -15,15 +15,15 @@ parallelExecution in Test := false
 publishArtifact in Test := true
 
 libraryDependencies ++= Seq(
-  "com.google.protobuf"  % "protobuf-java"                 % "2.5.0",
-  "com.typesafe.akka"   %% "akka-persistence"              % "2.5.0",
-  "com.typesafe.akka"   %% "akka-persistence-tck"          % "2.5.0" % Test,
-  "com.typesafe.akka"   %% "akka-testkit"                  % "2.5.0" % Test,
+  "com.google.protobuf"  % "protobuf-java"                 % "2.6.1",
+  "com.typesafe.akka"   %% "akka-persistence"              % "2.5.3",
+  "com.typesafe.akka"   %% "akka-persistence-tck"          % "2.5.3" % Test,
+  "com.typesafe.akka"   %% "akka-testkit"                  % "2.5.3" % Test,
   "commons-io"           % "commons-io"                    % "2.5"      % Test,
   "org.apache.kafka"    %% "kafka"                         % "0.11.0.0",
-  "org.apache.curator"   % "curator-test"                  % "3.2.1"    % Test,
-  "org.slf4j" 		 % "slf4j-log4j12" 		   % "1.7.22"	% Test,
-  "com.typesafe.akka" 	%% "akka-slf4j" 		   % "2.4.17"	% Test
+  "org.apache.curator"   % "curator-test"                  % "3.3.0"    % Test,
+  "org.slf4j" 		 % "slf4j-log4j12" 		   % "1.7.25"	% Test,
+  "com.typesafe.akka" 	%% "akka-slf4j" 		   % "2.5.3"	% Test
 )
 
 /*artifactName := { (sv: ScalaVersion, module: ModuleID, artifact: Artifact) =>
