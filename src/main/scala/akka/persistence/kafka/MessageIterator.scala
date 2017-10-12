@@ -4,6 +4,7 @@ import kafka.api.FetchRequestBuilder
 import kafka.common.ErrorMapping
 import kafka.consumer._
 import kafka.message._
+import org.apache.kafka.common.protocol.Errors
 
 object MessageUtil {
   def payloadBytes(m: Message): Array[Byte] = {
@@ -28,9 +29,9 @@ class MessageIterator(host: String, port: Int, topic: String, partition: Int, of
     val request = new FetchRequestBuilder().addFetch(topic, partition, offset, fetchMessageMaxBytes).build()
     val response = consumer.fetch(request)
 
-    response.errorCode(topic, partition) match {
-      case NoError => response.messageSet(topic, partition).iterator
-      case anError => throw exceptionFor(anError)
+    response.error(topic, partition) match {
+      case Errors.NONE => response.messageSet(topic, partition).iterator
+      case anError => throw exceptionFor(anError.code())
     }
   }
 
