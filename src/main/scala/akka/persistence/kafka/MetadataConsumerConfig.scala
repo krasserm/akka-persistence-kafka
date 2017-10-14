@@ -5,7 +5,7 @@ import com.typesafe.config.Config
 import kafka.consumer.ConsumerConfig
 import kafka.utils._
 
-class MetadataConsumerConfig(config: Config) {
+class MetadataConsumerConfig(val config: Config) {
   val partition: Int =
     config.getInt("partition")
 

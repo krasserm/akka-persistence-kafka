@@ -1,12 +1,17 @@
 package akka.persistence.kafka
 
+import java.util.Properties
+
 import scala.util._
 import kafka.api._
 import kafka.common._
-import kafka.consumer._
+import kafka.consumer.SimpleConsumer
 import kafka.utils._
 import org.I0Itec.zkclient.ZkClient
+import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, StringDeserializer, StringSerializer}
 
 object MetadataConsumer {
   object Broker {
@@ -67,19 +72,13 @@ trait MetadataConsumer {
   }
 
   def offsetFor(host: String, port: Int, topic: String, partition: Int): Long = {
-    import config.consumerConfig._
-    import ErrorMapping._
-
-    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
-    val offsetRequest = OffsetRequest(Map(TopicAndPartition(topic, partition) -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)))
-    val offsetResponse = try { consumer.getOffsetsBefore(offsetRequest) } finally { consumer.close() }
-    val offsetPartitionResponse = offsetResponse.partitionErrorAndOffsets(TopicAndPartition(topic, partition))
-
+    import scala.collection.JavaConverters._
+    val consumer = new KafkaConsumer(configToProperties(config.config, Map("bootstrap.servers" -> s"$host:$port")), new StringDeserializer(), new ByteArrayDeserializer())
     try {
-      offsetPartitionResponse.error match {
-        case Errors.NONE => offsetPartitionResponse.offsets.head
-        case anError => throw exceptionFor(anError.code)
-      }
+      val topicPartition = new TopicPartition(topic, partition)
+      consumer.assign(Seq(topicPartition).asJava)
+      consumer.seekToEnd(Seq(topicPartition).asJava)
+      consumer.position(topicPartition) - 1
     } finally {
       consumer.close()
     }

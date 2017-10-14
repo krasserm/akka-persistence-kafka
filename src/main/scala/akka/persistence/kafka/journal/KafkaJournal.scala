@@ -17,10 +17,11 @@ import akka.persistence.kafka.MetadataConsumer.Broker
 import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.util.Timeout
 import kafka.producer.KeyedMessage
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord, RecordMetadata}
+import org.apache.kafka.common.errors.{AuthorizationException, OutOfOrderSequenceException, ProducerFencedException}
 import org.apache.kafka.common.serialization.{ByteArraySerializer, StringSerializer}
 
-class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
+class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLogging {
   import context.dispatcher
 
   type Deletions = Map[String, (Long, Boolean)]
@@ -53,8 +54,10 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   var journalProducerConfig = config.journalProducerConfig(brokers)
   var eventProducerConfig = config.eventProducerConfig(brokers)
 
-  var writers: Vector[ActorRef] = Vector.fill(config.writeConcurrency)(writer())
-  val writeTimeout = Timeout(journalProducerConfig.get(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG).asInstanceOf[Int].millis)
+  var writers: Vector[ActorRef] = Vector.tabulate(config.writeConcurrency)(writer(_))
+  val writeTimeout = {
+    Timeout(Option[Any](journalProducerConfig.get(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG)).getOrElse(30000).asInstanceOf[Int].millis)
+  }
 
   // Transient deletions only to pass TCK (persistent not supported)
   var deletions: Deletions = Map.empty
@@ -87,8 +90,8 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer {
   private def writerFor(persistenceId: String): ActorRef =
     writers(math.abs(persistenceId.hashCode) % config.writeConcurrency)
 
-  private def writer(): ActorRef = {
-    context.actorOf(Props(new KafkaJournalWriter(writerConfig)).withDispatcher(config.pluginDispatcher))
+  private def writer(index: Int): ActorRef = {
+    context.actorOf(Props(new KafkaJournalWriter(writerConfig, index)).withDispatcher(config.pluginDispatcher))
   }
 
   private def writerConfig = {
@@ -148,8 +151,8 @@ private case class KafkaJournalWriterConfig(
 
 private case class UpdateKafkaJournalWriterConfig(config: KafkaJournalWriterConfig)
 
-private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends Actor {
-  var msgProducer = createMessageProducer()
+private class KafkaJournalWriter(var config: KafkaJournalWriterConfig, val index: Int) extends Actor with ActorLogging {
+  var msgProducer = createMessageProducer(index)
   var evtProducer = createEventProducer()
 
   def receive = {
@@ -157,7 +160,7 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
       msgProducer.close()
       evtProducer.close()
       config = newConfig
-      msgProducer = createMessageProducer()
+      msgProducer = createMessageProducer(index)
       evtProducer = createEventProducer()
 
     case messages: Seq[PersistentRepr] =>
@@ -176,13 +179,21 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
       t <- config.evtTopicMapper.topicsFor(e)
     } yield new ProducerRecord[String, Array[Byte]](t, e.persistenceId, config.serialization.serialize(e).get)
 
-    msgProducer.initTransactions()
-    producerRecords.map(msgProducer.send(_))
-    msgProducer.commitTransaction()
+    try {
+      msgProducer.beginTransaction()
+      producerRecords.map(msgProducer.send(_))
+      msgProducer.commitTransaction()
+    } catch {
+      case e: ProducerFencedException =>
+        log.error("Another producer with same transactional id was detected", e)
+        msgProducer.close()
+        throw e
+    }
 
-    evtProducer.initTransactions()
-    producerRecords.map(evtProducer.send(_))
-    evtProducer.commitTransaction()
+    producerRecords.foreach { record =>
+      val javaFuture = evtProducer.send(record)
+      javaFuture.get()
+    }
   }
 
   override def postStop(): Unit = {
@@ -191,7 +202,14 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends A
     super.postStop()
   }
 
-  private def createMessageProducer() = new KafkaProducer[String, Array[Byte]](config.journalProducerConfig, new StringSerializer(), new ByteArraySerializer())
+  private def createMessageProducer(index: Int) = {
+    val producerConfig = config.journalProducerConfig.clone().asInstanceOf[Properties]
+    producerConfig.setProperty(ProducerConfig.TRANSACTIONAL_ID_CONFIG, producerConfig.getProperty(ProducerConfig.TRANSACTIONAL_ID_CONFIG) + s"-$index")
+    log.debug("Creating producer with config: " + producerConfig.toString)
+    val producer = new KafkaProducer[String, Array[Byte]](producerConfig, new StringSerializer(), new ByteArraySerializer())
+    producer.initTransactions()
+    producer
+  }
 
   private def createEventProducer() = new KafkaProducer[String, Array[Byte]](config.eventProducerConfig, new StringSerializer(), new ByteArraySerializer())
 }
