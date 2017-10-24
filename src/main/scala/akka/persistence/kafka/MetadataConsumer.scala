@@ -78,7 +78,8 @@ trait MetadataConsumer {
       val topicPartition = new TopicPartition(topic, partition)
       consumer.assign(Seq(topicPartition).asJava)
       consumer.seekToEnd(Seq(topicPartition).asJava)
-      consumer.position(topicPartition) - 1
+      val nextPosition = consumer.position(topicPartition)
+      if (nextPosition <= 0) nextPosition else nextPosition - 1
     } finally {
       consumer.close()
     }

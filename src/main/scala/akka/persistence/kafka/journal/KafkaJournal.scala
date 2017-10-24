@@ -190,7 +190,7 @@ private class KafkaJournalWriter(var config: KafkaJournalWriterConfig, val index
         throw e
     }
 
-    producerRecords.foreach { record =>
+    keyedEvents.foreach { record =>
       val javaFuture = evtProducer.send(record)
       javaFuture.get()
     }
