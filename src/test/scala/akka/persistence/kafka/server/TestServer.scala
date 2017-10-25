@@ -1,69 +1,63 @@
 package akka.persistence.kafka.server
 
-import java.io.File
-
-import akka.persistence.kafka._
+import java.util.Properties
 
 import com.typesafe.config._
-
+import kafka.integration.KafkaServerTestHarness
 import kafka.server._
+import kafka.utils.{TestUtils, ZkUtils}
 
-import org.apache.curator.test.TestingServer
+import scala.collection.JavaConverters._
 
-object TestServerConfig {
-  def load(): TestServerConfig =
-    load("application")
+object ConfigurationOverride {
 
-  def load(resource: String): TestServerConfig =
-    new TestServerConfig(ConfigFactory.load(resource).getConfig("test-server"))
+  // Give a chance (mainly for tests) to override classpath application
+  // configuration
+  protected[kafka] var configApp: Config = _
+
 }
 
-class TestServerConfig(config: Config) {
-  object zookeeper {
-    val port: Int =
-      config.getInt("zookeeper.port")
+object Configuration {
 
-    val dir: String =
-      config.getString("zookeeper.dir")
+  def init(): Unit = {
+    // We just want to initialize the configuration, which is now done
   }
 
-  val kafka: KafkaConfig =
-    new KafkaConfig(configToProperties(config.getConfig("kafka"),
-      Map("zookeeper.connect" -> s"localhost:${zookeeper.port}", "host.name" -> "localhost")))
+  val configApp = Option(ConfigurationOverride.configApp).getOrElse(ConfigFactory.load())
+
 }
 
-class TestServer(config: TestServerConfig = TestServerConfig.load()) {
-  val zookeeper = new TestZookeeperServer(config)
-  val kafka = new TestKafkaServer(config)
+class TestServer(config: Config) extends KafkaServerTestHarness {
+  val kafkaConfig = config.getConfig("kafka")
 
-  def stop(): Unit = {
-    kafka.stop()
-    zookeeper.stop()
-  }
-}
-
-class TestZookeeperServer(config: TestServerConfig) {
-  import config._
-
-  private val server: TestingServer =
-    new TestingServer(zookeeper.port, new File(zookeeper.dir))
-
-  def stop(): Unit = server.stop()
-}
-
-class TestKafkaServer(config: TestServerConfig) {
-  private val server: KafkaServer =
-    new KafkaServer(config.kafka)
-
-  start()
-
-  def start(): Unit = {
-    server.startup()
+  private def serverProps() = {
+    val serverProps = new Properties()
+    kafkaConfig.entrySet.asScala.foreach { entry ⇒
+      serverProps.put(entry.getKey, entry.getValue.unwrapped.toString)
+    }
+    serverProps
   }
 
-  def stop(): Unit = {
-    server.shutdown()
-    server.awaitShutdown()
+  override def generateConfigs: Seq[KafkaConfig] = {
+    Seq(TestUtils.createBrokerConfig(nodeId = 1, zkConnect = zkConnect, port = kafkaConfig.getInt("port")))
+      .map(KafkaConfig.fromProps(_, serverProps()))
   }
 }
 
+import org.scalatest._
+trait KafkaTest extends BeforeAndAfterAll { this: Suite ⇒
+
+  var server:TestServer = _
+
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    val serverConfig = Configuration.configApp.getConfig("test-server")
+    server = new TestServer(serverConfig)
+    server.setUp()
+  }
+
+  override def afterAll(): Unit = {
+    server.tearDown()
+    super.afterAll()
+  }
+}

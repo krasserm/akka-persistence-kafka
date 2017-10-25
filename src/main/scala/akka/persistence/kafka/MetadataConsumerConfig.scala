@@ -1,18 +1,19 @@
 package akka.persistence.kafka
 
 import com.typesafe.config.Config
+import org.apache.kafka.clients.consumer.ConsumerConfig
 
-import kafka.consumer.ConsumerConfig
-import kafka.utils._
 
 class MetadataConsumerConfig(config: Config) {
   val partition: Int =
     config.getInt("partition")
 
-  val zookeeperConfig: ZKConfig =
-    new ZKConfig(new VerifiableProperties(configToProperties(config)))
+  val snapshotConsumerConfig: Map[String,Object] =
+    configToProperties(config.getConfig("consumer"),
+      Map(ConsumerConfig.GROUP_ID_CONFIG -> "snapshot",
+        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringDeserializer",
+        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArrayDeserializer"))
 
-  val consumerConfig: ConsumerConfig =
-    new ConsumerConfig(configToProperties(config.getConfig("consumer"),
-      Map("zookeeper.connect" -> zookeeperConfig.zkConnect, "group.id" -> "snapshot")))
+  lazy val journalConsumerConfig: Map[String,Object] =
+    snapshotConsumerConfig ++ Map(ConsumerConfig.ISOLATION_LEVEL_CONFIG -> "read_committed")
 }

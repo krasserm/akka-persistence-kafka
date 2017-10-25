@@ -1,23 +1,19 @@
 package akka.persistence.kafka.snapshot
 
-import scala.concurrent.{Promise, Future}
+import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.util._
 
 import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.persistence._
-import akka.persistence.JournalProtocol._
 import akka.persistence.snapshot.SnapshotStore
 import akka.persistence.kafka._
-import akka.persistence.kafka.MetadataConsumer.Broker
-import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.serialization.SerializationExtension
 import akka.util.Timeout
-
 import akka.persistence.kafka.journal.KafkaJournalProtocol._
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 
-import _root_.kafka.producer.{Producer, KeyedMessage}
+import scala.collection.JavaConverters._
 
 class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorLogging {
   import SnapshotProtocol._
@@ -30,20 +26,10 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
 
   val serialization = SerializationExtension(context.system)
   val config = new KafkaSnapshotStoreConfig(context.system.settings.config.getConfig("kafka-snapshot-store"))
-  val brokerWatcher = new BrokerWatcher(config.zookeeperConfig, self)
-  var brokers: List[Broker] = brokerWatcher.start()
 
   override def postStop(): Unit = {
-    brokerWatcher.stop()
     super.postStop()
   }
-
-  def localReceive: Receive = {
-    case BrokersUpdated(newBrokers) =>
-      brokers = newBrokers
-  }
-
-  override def receivePluginInternal: Receive = localReceive.orElse(super.receivePluginInternal)
 
   // Transient deletions only to pass TCK (persistent not supported)
   var rangeDeletions: RangeDeletions = Map.empty.withDefaultValue(SnapshotSelectionCriteria.None)
@@ -60,16 +46,12 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
     }
   }
 
-  def saveAsync(metadata: SnapshotMetadata, snapshot: Any): Future[Unit] = Future {
+  def saveAsync(metadata: SnapshotMetadata, snapshot: Any): Future[Unit] = {
     val snapshotBytes = serialization.serialize(KafkaSnapshot(metadata, snapshot)).get
-    val snapshotMessage = new KeyedMessage[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
-    val snapshotProducer = new Producer[String, Array[Byte]](config.producerConfig(brokers))
-    try {
-      // TODO: take a producer from a pool
-      snapshotProducer.send(snapshotMessage)
-    } finally {
-      snapshotProducer.close()
-    }
+    val snapshotMessage = new ProducerRecord[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
+    val snapshotProducer = new KafkaProducer[String, Array[Byte]](config.producerConfig().asJava)
+    // TODO: take a producer from a pool
+    sendFuture(snapshotProducer, snapshotMessage).map { _ => snapshotProducer.close()}
   }
 
   def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
@@ -85,32 +67,28 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
       // adjusted = criteria
       snapshot <- Future {
         val topic = snapshotTopic(persistenceId)
-
         // if timestamp was unset on delete, matches only on same sequence nr
         def matcher(snapshot: KafkaSnapshot): Boolean = snapshot.matches(adjusted) &&
           !snapshot.matches(rangeDeletions(persistenceId)) &&
           !singleDeletions(persistenceId).contains(snapshot.metadata) &&
           !singleDeletions(persistenceId).filter(_.timestamp == 0L).map(_.sequenceNr).contains(snapshot.metadata.sequenceNr)
 
-        leaderFor(topic, brokers) match {
-          case Some(Broker(host, port)) => load(host, port, topic, matcher).map(s => SelectedSnapshot(s.metadata, s.snapshot))
-          case None => None
-        }
+        load(topic, matcher).map(s => SelectedSnapshot(s.metadata, s.snapshot))
       }
     } yield snapshot
   }
 
-  def load(host: String, port: Int, topic: String, matcher: KafkaSnapshot => Boolean): Option[KafkaSnapshot] = {
-    val offset = offsetFor(host, port, topic, config.partition)
+  def load(topic: String, matcher: KafkaSnapshot => Boolean): Option[KafkaSnapshot] = {
+    val offset = offsetFor(config.snapshotConsumerConfig, topic, config.partition)
 
     @annotation.tailrec
-    def load(host: String, port: Int, topic: String, offset: Long): Option[KafkaSnapshot] =
+    def load(topic: String, offset: Long): Option[KafkaSnapshot] =
       if (offset < 0) None else {
-        val s = snapshot(host, port, topic, offset)
-        if (matcher(s)) Some(s) else load(host, port, topic, offset - 1)
+        val s = snapshot(topic, offset)
+        if (matcher(s)) Some(s) else load(topic, offset - 1)
       }
 
-    load(host, port, topic, offset - 1)
+    load(topic, offset - 1)
   }
 
   /**
@@ -118,18 +96,18 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
     */
 
   private def highestJournalSequenceNr(persistenceId: String): Future[Long] = {
-    val journal = extension.journalFor(null);
+    val journal = extension.journalFor(null)
     implicit val timeout = Timeout(5 seconds)
     val res = journal ? ReadHighestSequenceNr(0L, persistenceId, self)
     res.flatMap {
-      case ReadHighestSequenceNrSuccess(snr) => Future.successful(snr)
+      case ReadHighestSequenceNrSuccess(snr) => Future.successful(snr+1)
       case ReadHighestSequenceNrFailure(err) => Future.failed(err)
     }
   }
 
-  private def snapshot(host: String, port: Int, topic: String, offset: Long): KafkaSnapshot = {
-    val iter = new MessageIterator(host, port, topic, config.partition, offset, config.consumerConfig)
-    try { serialization.deserialize(MessageUtil.payloadBytes(iter.next()), classOf[KafkaSnapshot]).get } finally { iter.close() }
+  private def snapshot(topic: String, offset: Long): KafkaSnapshot = {
+    val iter = new MessageIterator(config.snapshotConsumerConfig, topic, config.partition, offset)
+    try { serialization.deserialize(iter.next().value(), classOf[KafkaSnapshot]).get } finally { iter.close() }
   }
 
   private def snapshotTopic(persistenceId: String): String =

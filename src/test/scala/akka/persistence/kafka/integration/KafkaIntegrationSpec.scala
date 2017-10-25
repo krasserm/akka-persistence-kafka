@@ -1,22 +1,18 @@
 package akka.persistence.kafka.integration
 
 import scala.collection.immutable.Seq
-import scala.concurrent.duration._
-
 import akka.actor._
 import akka.persistence._
 import akka.persistence.SnapshotProtocol._
 import akka.persistence.kafka._
 import akka.persistence.kafka.journal.KafkaJournalConfig
 import akka.persistence.kafka.server._
+import akka.persistence.kafka.snapshot.KafkaSnapshotStoreConfig
 import akka.serialization.SerializationExtension
 import akka.testkit._
-
 import com.typesafe.config.ConfigFactory
-
 import org.scalatest._
-
-import _root_.kafka.message.Message
+import org.apache.kafka.clients.consumer.ConsumerRecord
 
 object KafkaIntegrationSpec {
   val config = ConfigFactory.parseString(
@@ -25,10 +21,6 @@ object KafkaIntegrationSpec {
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
       |akka.test.single-expect-default = 10s
       |kafka-journal.event.producer.request.required.acks = 1
-      |kafka-journal.zookeeper.connection.timeout.ms = 10000
-      |kafka-journal.zookeeper.session.timeout.ms = 10000
-      |test-server.zookeeper.dir = target/test/zookeeper
-      |test-server.kafka.log.dirs = target/test/kafka
     """.stripMargin)
 
   class TestPersistentActor(val persistenceId: String, probe: ActorRef) extends PersistentActor {
@@ -55,14 +47,13 @@ object KafkaIntegrationSpec {
   }*/
 }
 
-class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaCleanup {
+class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaTest {
   import KafkaIntegrationSpec._
-  import MessageUtil._
 
   val systemConfig = system.settings.config
+  ConfigurationOverride.configApp = config.withFallback(systemConfig)
   val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
-  val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
-  val server = new TestServer(serverConfig)
+  val storeConfig = new KafkaSnapshotStoreConfig(systemConfig.getConfig("kafka-snapshot-store"))
 
   val serialization = SerializationExtension(system)
   val eventDecoder = new EventDecoder(system)
@@ -79,12 +70,9 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   }
 
   override def afterAll(): Unit = {
-    server.stop()
     system.terminate()
     super.afterAll()
   }
-
-  import serverConfig._
 
   /*def withPersistentView(persistenceId: String, viewId: String)(body: ActorRef => Unit) = {
     val actor = system.actorOf(Props(new TestPersistentView(persistenceId, viewId, testActor)))
@@ -101,18 +89,18 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   }
 
   def readJournal(journalTopic: String): Seq[PersistentRepr] =
-    readMessages(journalTopic, 0).map(m => serialization.deserialize(payloadBytes(m), classOf[PersistentRepr]).get)
+    readMessages(journalTopic, 0).map(m => serialization.deserialize(m.value(), classOf[PersistentRepr]).get)
 
   def readEvents(partition: Int): Seq[Event] =
-    readMessages("events", partition).map(m => eventDecoder.fromBytes(payloadBytes(m)))
+    readMessages("events", partition).map(m => eventDecoder.fromBytes(m.value))
 
-  def readMessages(topic: String, partition: Int): Seq[Message] =
-    new MessageIterator(kafka.hostName, kafka.port, topic, partition, 0, journalConfig.consumerConfig).toVector
+  def readMessages(topic: String, partition: Int): Seq[ConsumerRecord[String, Array[Byte]]] =
+    new MessageIterator(journalConfig.journalConsumerConfig, topic, partition, 0).toVector
 
   "A Kafka journal" must {
     "publish all events to the events topic by default" in {
       val eventSeq = for {
-        partition <- 0 until kafka.numPartitions
+        partition <- 0 until server.configs.head.numPartitions
         event <- readEvents(partition)
       } yield event
 
@@ -137,10 +125,11 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   "A Kafka snapshot store" when {
     "configured with ignore-orphan = true" must {
       "ignore orphan snapshots (snapshot sequence nr > highest journal sequence nr)" in {
+        storeConfig.ignoreOrphan shouldBe true
         val persistenceId = "pa"
 
-        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 4), "test")
-        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(4L) }
+        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 7), "test")
+        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(7L) }
 
         withPersistentActor(persistenceId) { _ =>
           expectMsg("a-1")
@@ -154,8 +143,8 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
         store ! SaveSnapshot(SnapshotMetadata(persistenceId, 2), "test")
         expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(2L) }
 
-        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 4), "test")
-        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(4L) }
+        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 7), "test")
+        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(7L) }
 
         withPersistentActor(persistenceId) { _ =>
           expectMsgPF() { case SnapshotOffer(SnapshotMetadata(_, snr, _), _) => snr should be(2) }

@@ -67,16 +67,13 @@ object KafkaLoadSpec {
   }
 }
 
-class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaCleanup {
+class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaTest {
   import KafkaLoadSpec._
 
   val systemConfig = system.settings.config
   val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
-  val serverConfig = new TestServerConfig(systemConfig.getConfig("test-server"))
-  val server = new TestServer(serverConfig)
 
   override def afterAll(): Unit = {
-    server.stop()
     system.terminate()
     super.afterAll()
   }

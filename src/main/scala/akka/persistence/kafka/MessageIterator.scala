@@ -1,45 +1,31 @@
 package akka.persistence.kafka
 
-import kafka.api.FetchRequestBuilder
-import kafka.common.ErrorMapping
-import kafka.consumer._
 import kafka.message._
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.clients.consumer.{ConsumerRecord, KafkaConsumer}
+import org.apache.kafka.common.TopicPartition
 
-object MessageUtil {
-  def payloadBytes(m: Message): Array[Byte] = {
-    val payload = m.payload
-    val payloadBytes = Array.ofDim[Byte](payload.limit())
+import scala.collection.JavaConverters._
 
-    payload.get(payloadBytes)
-    payloadBytes
-  }
-}
+class MessageIterator(consumerConfig:Map[String,Object], topic: String, partition: Int, offset: Long) extends Iterator[ConsumerRecord[String, Array[Byte]]] {
 
-class MessageIterator(host: String, port: Int, topic: String, partition: Int, offset: Long, consumerConfig: ConsumerConfig) extends Iterator[Message] {
-  import consumerConfig._
-  import ErrorMapping._
-
-  val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
+  val consumer = new KafkaConsumer[String, Array[Byte]](consumerConfig.asJava)
   var iter = iterator(offset)
   var readMessages = 0
   var nextOffset = offset
 
-  def iterator(offset: Long): Iterator[MessageAndOffset] = {
-    val request = new FetchRequestBuilder().addFetch(topic, partition, offset, fetchMessageMaxBytes).build()
-    val response = consumer.fetch(request)
-
-    response.error(topic, partition) match {
-      case Errors.NONE => response.messageSet(topic, partition).iterator
-      case anError => throw anError.exception()
-    }
+  def iterator(offset: Long): Iterator[ConsumerRecord[String, Array[Byte]]] = {
+    val tp = new TopicPartition(topic,partition)
+    consumer.assign(List(tp).asJava)
+    consumer.seek(tp,offset)
+    val it = consumer.poll(100).iterator().asScala
+    it
   }
 
-  def next(): Message = {
+  def next(): ConsumerRecord[String, Array[Byte]] = {
     val mo = iter.next()
     readMessages += 1
-    nextOffset = mo.nextOffset
-    mo.message
+    nextOffset = mo.offset() + 1
+    mo
   }
 
   @annotation.tailrec

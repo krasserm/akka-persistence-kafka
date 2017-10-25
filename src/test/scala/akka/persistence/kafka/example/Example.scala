@@ -7,7 +7,7 @@ import scala.collection.immutable.Seq
 import akka.actor._
 import akka.persistence.{PersistentActor, PersistentRepr, SaveSnapshotFailure, SaveSnapshotSuccess, SnapshotOffer}
 import akka.persistence.kafka.{EventDecoder, Event, EventTopicMapper}
-import akka.persistence.kafka.server.{TestServerConfig, TestServer}
+import akka.persistence.kafka.server.TestServer
 import akka.serialization.SerializationExtension
 
 import com.typesafe.config.ConfigFactory
@@ -103,5 +103,5 @@ object ExampleJournalConsumer extends App {
 }
 
 object ExampleServer extends App {
-  new TestServer(TestServerConfig.load("example"))
+  new TestServer(ConfigFactory.load("example"))
 }

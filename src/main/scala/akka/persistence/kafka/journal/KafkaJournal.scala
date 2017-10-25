@@ -1,25 +1,18 @@
 package akka.persistence.kafka.journal
 
 import scala.collection.immutable
-import scala.util.Try
-
+import scala.util.{Failure, Success, Try}
 import akka.persistence.journal.AsyncWriteJournal
-import akka.serialization.{Serialization, SerializationExtension}
-
-import kafka.producer._
+import akka.serialization.SerializationExtension
 
 import scala.concurrent.Future
-import scala.concurrent.duration._
-
 import akka.actor._
-import akka.pattern.ask
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.persistence.kafka._
-import akka.persistence.kafka.MetadataConsumer.Broker
-import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.persistence.kafka.journal.KafkaJournalProtocol._
-import akka.util.Timeout
-import scala.util.Success
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+
+import scala.collection.JavaConverters._
 
 private case class SeqOfPersistentReprContainer(messages: Seq[PersistentRepr])
 
@@ -31,22 +24,14 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   val serialization = SerializationExtension(context.system)
   val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
 
-  val brokerWatcher = new BrokerWatcher(config.zookeeperConfig, self)
-  var brokers = brokerWatcher.start()
 
   override def postStop(): Unit = {
-    brokerWatcher.stop()
     super.postStop()
   }
 
   override def receivePluginInternal: Receive = localReceive.orElse(super.receivePluginInternal)
 
   private def localReceive: Receive = {
-    case BrokersUpdated(newBrokers) if newBrokers != brokers =>
-      brokers = newBrokers
-      journalProducerConfig = config.journalProducerConfig(brokers)
-      eventProducerConfig = config.eventProducerConfig(brokers)
-      writers.foreach(_ ! UpdateKafkaJournalWriterConfig(writerConfig))
     case ReadHighestSequenceNr(fromSequenceNr, persistenceId, persistentActor) =>
       try {
         val highest = readHighestSequenceNr(persistenceId, fromSequenceNr)
@@ -60,25 +45,69 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   //  Journal writes
   // --------------------------------------------------------------------------------------
 
-  var journalProducerConfig = config.journalProducerConfig(brokers)
-  var eventProducerConfig = config.eventProducerConfig(brokers)
+  val journalProducerConfig = config.journalProducerConfig()
+  val eventProducerConfig = config.eventProducerConfig()
 
-  var writers: Vector[ActorRef] = Vector.fill(config.writeConcurrency)(writer())
-  val writeTimeout = Timeout(journalProducerConfig.requestTimeoutMs.millis)
+  val msgProducer = createMessageProducer()
+  val evtProducer = createEventProducer()
 
   // Transient deletions only to pass TCK (persistent not supported)
   var deletions: Deletions = Map.empty
 
+  private def createMessageProducer() = {
+    val p = new KafkaProducer[String, Array[Byte]](journalProducerConfig.asJava)
+    p.initTransactions()
+    p
+  }
+
+  private def createEventProducer() = {
+    val p = new KafkaProducer[String, Array[Byte]](eventProducerConfig.asJava)
+    p.initTransactions()
+    p
+  }
+
   def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
-    
+    //Keep on sorting the messages by persistenceId, because of the transaction.
     val writes = Future.sequence(messages.groupBy(_.persistenceId).map {
       case (pid,aws) => {
         val msgs = aws.map(aw => aw.payload).flatten
-        writerFor(pid).ask(SeqOfPersistentReprContainer(msgs))(writeTimeout).mapTo[Seq[Try[Unit]]]
+        writeMessages(msgs)
       }
     }).map { x => x.flatten.to[collection.immutable.Seq] }
     
     writes
+  }
+
+  private def writeMessages(messages: Seq[PersistentRepr]): Future[Seq[Try[Unit]]] = {
+    val recordMsgs = for {
+      m <- messages
+    } yield new ProducerRecord[String, Array[Byte]](journalTopic(m.persistenceId), "static", serialization.serialize(m).get)
+
+    val recordEvents = for {
+      m <- messages
+      e = Event(m.persistenceId, m.sequenceNr, m.payload)
+      t <- config.eventTopicMapper.topicsFor(e)
+    } yield new ProducerRecord(t, e.persistenceId, serialization.serialize(e).get)
+
+    msgProducer.beginTransaction()
+    val fRecords = recordMsgs.map { recordMsg =>
+      sendFuture(msgProducer,recordMsg).map {_ => Success()}
+    }
+    val retMsgs = Future.sequence(fRecords).andThen {
+      case Success(_) => msgProducer.commitTransaction()
+      case Failure(e) => msgProducer.abortTransaction()
+    }
+
+    evtProducer.beginTransaction()
+    val fEvents = recordEvents.map { recordMsg =>
+      sendFuture(evtProducer,recordMsg).map {_ => Success()}
+    }
+    val retEvents = Future.sequence(fEvents).andThen {
+      case Success(_) =>  evtProducer.commitTransaction()
+      case Failure(e) => evtProducer.abortTransaction()
+    }
+
+    retMsgs.flatMap { _ => retEvents}
   }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
@@ -86,18 +115,6 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
   def deleteMessagesTo(persistenceId: String, toSequenceNr: Long, permanent: Boolean): Unit =
     deletions = deletions + (persistenceId -> (toSequenceNr, permanent))
-
-  private def writerFor(persistenceId: String): ActorRef =
-    writers(math.abs(persistenceId.hashCode) % config.writeConcurrency)
-
-  private def writer(): ActorRef = {
-    context.actorOf(Props(new KafkaJournalWriter(writerConfig)).withDispatcher(config.pluginDispatcher))
-  }
-
-  private def writerConfig = {
-    KafkaJournalWriterConfig(journalProducerConfig, eventProducerConfig, config.eventTopicMapper, serialization)
-  }
-
 
   // --------------------------------------------------------------------------------------
   //  Journal reads
@@ -108,10 +125,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
   def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Long = {
     val topic = journalTopic(persistenceId)
-    leaderFor(topic, brokers) match {
-      case Some(Broker(host, port)) => offsetFor(host, port, topic, config.partition)
-      case None                     => fromSequenceNr
-    }
+    Math.max(offsetFor(config.journalConsumerConfig, topic, config.partition)-1,0)
   }
 
   def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] = {
@@ -126,73 +140,20 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
     val adjustedNum = toSequenceNr - adjustedFrom + 1L
     val adjustedTo = if (max < adjustedNum) adjustedFrom + max - 1L else toSequenceNr
 
-    val lastSequenceNr = leaderFor(journalTopic(persistenceId), brokers) match {
-      case None => 0L // topic for persistenceId doesn't exist yet
-      case Some(MetadataConsumer.Broker(host, port)) =>
-        val iter = persistentIterator(host, port, journalTopic(persistenceId), adjustedFrom - 1L)
-        iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(adjustedFrom) {
-          case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
-        }
+    val lastSequenceNr = {
+      val iter = persistentIterator(journalTopic(persistenceId), adjustedFrom - 1L)
+      iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(adjustedFrom) {
+        case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
+      }
     }
+
   }
 
-  def persistentIterator(host: String, port: Int, topic: String, offset: Long): Iterator[PersistentRepr] = {
+  def persistentIterator(topic: String, offset: Long): Iterator[PersistentRepr] = {
     val adjustedOffset = if(offset < 0) 0 else offset
-    new MessageIterator(host, port, topic, config.partition, adjustedOffset, config.consumerConfig).map { m =>
-      serialization.deserialize(MessageUtil.payloadBytes(m), classOf[PersistentRepr]).get
+    new MessageIterator(config.journalConsumerConfig, topic, config.partition, adjustedOffset).map { m =>
+      serialization.deserialize(m.value(), classOf[PersistentRepr]).get
     }
   }
 }
 
-private case class KafkaJournalWriterConfig(
-  journalProducerConfig: ProducerConfig,
-  eventProducerConfig: ProducerConfig,
-  evtTopicMapper: EventTopicMapper,
-  serialization: Serialization)
-
-private case class UpdateKafkaJournalWriterConfig(config: KafkaJournalWriterConfig)
-
-private class KafkaJournalWriter(var config: KafkaJournalWriterConfig) extends Actor {
-  var msgProducer = createMessageProducer()
-  var evtProducer = createEventProducer()
-
-  def receive = {
-    case UpdateKafkaJournalWriterConfig(newConfig) =>
-      msgProducer.close()
-      evtProducer.close()
-      config = newConfig
-      msgProducer = createMessageProducer()
-      evtProducer = createEventProducer()
-
-    case messages: SeqOfPersistentReprContainer =>
-      val result = writeMessages(messages.messages)
-      sender ! result 
-  }
-
-  def writeMessages(messages: Seq[PersistentRepr]): Seq[Try[Unit]] = {
-    val keyedMsgs = for {
-      m <- messages
-    } yield new KeyedMessage[String, Array[Byte]](journalTopic(m.persistenceId), "static", config.serialization.serialize(m).get)
-
-    val keyedEvents = for {
-      m <- messages
-      e = Event(m.persistenceId, m.sequenceNr, m.payload)
-      t <- config.evtTopicMapper.topicsFor(e)
-    } yield new KeyedMessage(t, e.persistenceId, config.serialization.serialize(e).get)
-    
-    msgProducer.send(keyedMsgs: _*)
-    evtProducer.send(keyedEvents: _*)
-    
-    keyedMsgs.map(_ => Success())    
-  }
-
-  override def postStop(): Unit = {
-    msgProducer.close()
-    evtProducer.close()
-    super.postStop()
-  }
-
-  private def createMessageProducer() = new Producer[String, Array[Byte]](config.journalProducerConfig)
-
-  private def createEventProducer() = new Producer[String, Array[Byte]](config.eventProducerConfig)
-}
