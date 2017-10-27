@@ -139,8 +139,8 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
       "ignore orphan snapshots (snapshot sequence nr > highest journal sequence nr)" in {
         val persistenceId = "pa"
 
-        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 4), "test")
-        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(4L) }
+        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 7), "test")
+        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(7L) }
 
         withPersistentActor(persistenceId) { _ =>
           expectMsg("a-1")
@@ -154,8 +154,8 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
         store ! SaveSnapshot(SnapshotMetadata(persistenceId, 2), "test")
         expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(2L) }
 
-        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 4), "test")
-        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(4L) }
+        store ! SaveSnapshot(SnapshotMetadata(persistenceId, 7), "test")
+        expectMsgPF() { case SaveSnapshotSuccess(md) => md.sequenceNr should be(7L) }
 
         withPersistentActor(persistenceId) { _ =>
           expectMsgPF() { case SnapshotOffer(SnapshotMetadata(_, snr, _), _) => snr should be(2) }

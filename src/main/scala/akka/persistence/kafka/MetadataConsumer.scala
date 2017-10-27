@@ -1,13 +1,17 @@
 package akka.persistence.kafka
 
-import scala.util._
+import java.util.Properties
 
+import scala.util._
 import kafka.api._
 import kafka.common._
-import kafka.consumer._
+import kafka.consumer.SimpleConsumer
 import kafka.utils._
-
 import org.I0Itec.zkclient.ZkClient
+import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer}
+import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, StringDeserializer, StringSerializer}
 
 object MetadataConsumer {
   object Broker {
@@ -57,10 +61,10 @@ trait MetadataConsumer {
     val topicMetadata = response.topicsMetadata(0)
 
     try {
-      topicMetadata.errorCode match {
-        case LeaderNotAvailableCode => None
-        case NoError => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
-        case anError => throw exceptionFor(anError)
+      topicMetadata.error match {
+        case Errors.LEADER_NOT_AVAILABLE => None
+        case Errors.NONE => topicMetadata.partitionsMetadata.filter(_.partitionId == config.partition)(0).leader.map(leader => Broker(leader.host, leader.port))
+        case anError => throw exceptionFor(anError.code)
       }
     } finally {
       consumer.close()
@@ -68,19 +72,14 @@ trait MetadataConsumer {
   }
 
   def offsetFor(host: String, port: Int, topic: String, partition: Int): Long = {
-    import config.consumerConfig._
-    import ErrorMapping._
-
-    val consumer = new SimpleConsumer(host, port, socketTimeoutMs, socketReceiveBufferBytes, clientId)
-    val offsetRequest = OffsetRequest(Map(TopicAndPartition(topic, partition) -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)))
-    val offsetResponse = try { consumer.getOffsetsBefore(offsetRequest) } finally { consumer.close() }
-    val offsetPartitionResponse = offsetResponse.partitionErrorAndOffsets(TopicAndPartition(topic, partition))
-
+    import scala.collection.JavaConverters._
+    val consumer = new KafkaConsumer(configToProperties(config.config, Map("bootstrap.servers" -> s"$host:$port")), new StringDeserializer(), new ByteArrayDeserializer())
     try {
-      offsetPartitionResponse.error match {
-        case NoError => offsetPartitionResponse.offsets.head
-        case anError => throw exceptionFor(anError)
-      }
+      val topicPartition = new TopicPartition(topic, partition)
+      consumer.assign(Seq(topicPartition).asJava)
+      consumer.seekToEnd(Seq(topicPartition).asJava)
+      val nextPosition = consumer.position(topicPartition)
+      if (nextPosition <= 0) nextPosition else nextPosition - 1
     } finally {
       consumer.close()
     }

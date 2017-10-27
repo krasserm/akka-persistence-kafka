@@ -1,9 +1,8 @@
 package akka.persistence.kafka.snapshot
 
-import scala.concurrent.{Promise, Future}
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration._
 import scala.util._
-
 import akka.actor._
 import akka.pattern.{PromiseActorRef, pipe}
 import akka.persistence._
@@ -13,8 +12,8 @@ import akka.persistence.kafka.MetadataConsumer.Broker
 import akka.persistence.kafka.BrokerWatcher.BrokersUpdated
 import akka.serialization.SerializationExtension
 import akka.util.Timeout
-
-import _root_.kafka.producer.{Producer, KeyedMessage}
+import org.apache.kafka.clients.producer.{KafkaProducer, Producer, ProducerRecord}
+import org.apache.kafka.common.serialization.{ByteArraySerializer, StringSerializer}
 
 /**
  * Optimized and fully async version of [[akka.persistence.snapshot.SnapshotStore]].
@@ -100,11 +99,13 @@ class KafkaSnapshotStore extends KafkaSnapshotStoreEndpoint with MetadataConsume
 
   def saveAsync(metadata: SnapshotMetadata, snapshot: Any): Future[Unit] = Future {
     val snapshotBytes = serialization.serialize(KafkaSnapshot(metadata, snapshot)).get
-    val snapshotMessage = new KeyedMessage[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
-    val snapshotProducer = new Producer[String, Array[Byte]](config.producerConfig(brokers))
+    val snapshotMessage = new ProducerRecord[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
+    val snapshotProducer = new KafkaProducer[String, Array[Byte]](config.producerConfig(brokers), new StringSerializer(), new ByteArraySerializer())
+    snapshotProducer.initTransactions()
     try {
-      // TODO: take a producer from a pool
+      snapshotProducer.beginTransaction()
       snapshotProducer.send(snapshotMessage)
+      snapshotProducer.commitTransaction()
     } finally {
       snapshotProducer.close()
     }
