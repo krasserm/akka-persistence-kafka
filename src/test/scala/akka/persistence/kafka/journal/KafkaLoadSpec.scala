@@ -71,7 +71,8 @@ class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) w
   import KafkaLoadSpec._
 
   val systemConfig = system.settings.config
-  val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
+
+  ConfigurationOverride.configApp = config.withFallback(systemConfig)
 
   override def afterAll(): Unit = {
     system.terminate()
