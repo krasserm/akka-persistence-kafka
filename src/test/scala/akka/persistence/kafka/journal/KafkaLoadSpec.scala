@@ -1,15 +1,11 @@
 package akka.persistence.kafka.journal
 
 import scala.concurrent.duration._
-
 import akka.actor._
 import akka.persistence.PersistentActor
-import akka.persistence.kafka._
 import akka.persistence.kafka.server._
 import akka.testkit._
-
 import com.typesafe.config.ConfigFactory
-
 import org.scalatest._
 
 object KafkaLoadSpec {
@@ -22,8 +18,6 @@ object KafkaLoadSpec {
       |kafka-journal.event.producer.topic.mapper.class = "akka.persistence.kafka.EmptyEventTopicMapper"
       |kafka-journal.zookeeper.connection.timeout.ms = 10000
       |kafka-journal.zookeeper.session.timeout.ms = 10000
-      |test-server.zookeeper.dir = target/test/zookeeper
-      |test-server.kafka.log.dirs = target/test/kafka
     """.stripMargin)
 
   trait Measure extends { this: Actor ⇒
@@ -94,3 +88,5 @@ class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) w
     }
   }
 }
+
+

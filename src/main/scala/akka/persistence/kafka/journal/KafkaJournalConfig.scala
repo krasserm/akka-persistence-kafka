@@ -14,13 +14,13 @@ class KafkaJournalConfig(config: Config) extends MetadataConsumerConfig(config) 
 
   def journalProducerConfig(): Map[String,Object] =
     configToProperties(config.getConfig("producer"),
-      Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> "akka-journal-message",
+      Map(
         ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringSerializer",
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer"))
 
   def eventProducerConfig(): Map[String,Object] =
     configToProperties(config.getConfig("event.producer"),
-      Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> "akka-journal-event",
+      Map(
         ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringSerializer",
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.ByteArraySerializer"))
 }

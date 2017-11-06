@@ -12,7 +12,7 @@ import akka.serialization.SerializationExtension
 import akka.testkit._
 import com.typesafe.config.ConfigFactory
 import org.scalatest._
-import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
 
 object KafkaIntegrationSpec {
   val config = ConfigFactory.parseString(
@@ -95,7 +95,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
     readMessages("events", partition).map(m => eventDecoder.fromBytes(m.value))
 
   def readMessages(topic: String, partition: Int): Seq[ConsumerRecord[String, Array[Byte]]] =
-    new MessageIterator(journalConfig.journalConsumerConfig, topic, partition, 0).toVector
+    new MessageIterator(journalConfig.txnAwareConsumerConfig++Map(ConsumerConfig.GROUP_ID_CONFIG -> "journal-test-reader"), topic, partition, 0).toVector
 
   "A Kafka journal" must {
     "publish all events to the events topic by default" in {
