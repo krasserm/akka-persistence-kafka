@@ -3,16 +3,19 @@ package akka.persistence.kafka.journal
 import scala.collection.immutable
 import scala.util.{Failure, Success, Try}
 import akka.persistence.journal.AsyncWriteJournal
-import akka.serialization.SerializationExtension
+import akka.serialization.{Serialization, SerializationExtension}
 
 import scala.concurrent.{Future, Promise}
+import scala.concurrent.duration._
 import akka.actor._
+import akka.pattern.ask
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.persistence.kafka._
 import akka.persistence.kafka.journal.KafkaJournalProtocol._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.errors.ProducerFencedException
+import akka.util.Timeout
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
@@ -29,8 +32,6 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
 
   override def postStop(): Unit = {
-    msgTxnProducer.close
-    evtTxnProducer.close
     super.postStop()
   }
 
@@ -50,128 +51,30 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   //  Journal writes
   // --------------------------------------------------------------------------------------
 
-  val journalProducerConfig = config.journalProducerConfig()
-  val eventProducerConfig = config.eventProducerConfig()
-
-  val msgTxnProducer = createMessageProducer(true)
-  val evtTxnProducer = createEventProducer(true)
-
   // Transient deletions only to pass TCK (persistent not supported)
   var deletions: Deletions = Map.empty
 
-  private def createMessageProducer(withTx:Boolean) = {
-    val conf = if(withTx) journalProducerConfig ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> "akka-journal-message") else journalProducerConfig
-    val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
-    if(withTx)
-      p.initTransactions()
-    p
-  }
+  var writers: Vector[ActorRef] = Vector.tabulate(config.writeConcurrency)(i => writer(i))
 
-  private def createEventProducer(withTx:Boolean) = {
-    val conf = if(withTx) eventProducerConfig ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> "akka-journal-events") else eventProducerConfig
-    val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
-    if(withTx)
-      p.initTransactions()
-    p
-  }
+  val writeTimeout = Timeout(config.writerTimeoutMs.millis)
 
   def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
+    val writes = messages.groupBy(msg => msg.persistenceId).map {
+      case (pid,aws) => writerFor(pid).ask(SeqOfPersistentReprContainer(aws.map{aw=>aw.payload}.flatten))(writeTimeout).mapTo[Try[Unit]]
+    }
 
-    writeBatches(messages)
-    /*if(messages.size > 1) {
-      writeBatches(messages)
-    } else {
-      if(messages.head.payload.size > 1) {
-        writeBatches(messages)
-      } else {
-        writeMessage(messages.head.payload.head).map { r => immutable.Seq(r) }
-      }
-    }*/
+    Future.sequence(writes.to[immutable.Seq]).map { _ =>
+      Nil //Happy path!!!
+    }.recover {
+      case e:Throwable => immutable.Seq.fill(messages.length)(Failure(e))
+    }
   }
 
-  /*def writeMessage(message: PersistentRepr): Future[Try[Unit]] = {
-    val (recordMsgs, recordEvents) = buildRecords(Seq(message))
+  private def writerFor(persistenceId: String): ActorRef =
+    writers(math.abs(persistenceId.hashCode) % config.writeConcurrency)
 
-    val fMsg = sendFuture(msgNoTxnProducer, recordMsgs.head)
-    val fFinal = if(recordEvents.size > 0) {
-      fMsg.map { _ =>
-        sendFuture(evtNoTxnProducer, recordEvents.head)
-      }
-    } else {
-      fMsg
-    }
-
-    fFinal.map { _ =>
-      Success()
-    }. recover {
-      case e => e.printStackTrace();Failure(e)
-    }
-
-  }*/
-
-
-  private def writeBatches(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
-    //Keep on sorting the messages by persistenceId, because of the transaction.
-    var failure: Option[Try[Unit]] = None
-
-    val writes = messages.groupBy(_.persistenceId).map {
-      case (pid, aws) => {
-        val msgs = aws.map(aw => aw.payload).flatten
-        val result = writeMessages(msgs)
-        if (result.isFailure)
-          failure = Some(result)
-      }
-    }
-
-    val promise = Promise[immutable.Seq[Try[Unit]]]()
-
-    if (failure.isEmpty)
-      promise.complete(Success(Nil)) // Happy Path
-    else
-      promise.failure(failure.get.failed.get)
-
-    promise.future
-  }
-
-  private def buildRecords(messages: Seq[PersistentRepr]) = {
-    val recordMsgs = for {
-      m <- messages
-    } yield new ProducerRecord[String, Array[Byte]](journalTopic(m.persistenceId), "static", serialization.serialize(m).get)
-
-    val recordEvents = for {
-      m <- messages
-      e = Event(m.persistenceId, m.sequenceNr, m.payload)
-      t <- config.eventTopicMapper.topicsFor(e)
-    } yield new ProducerRecord(t, e.persistenceId, serialization.serialize(e).get)
-
-    (recordMsgs,recordEvents)
-  }
-
-  private def writeMessages(messages: Seq[PersistentRepr]): Try[Unit] = {
-
-    try {
-      val (recordMsgs, recordEvents) = buildRecords(messages)
-
-      msgTxnProducer.beginTransaction()
-      recordMsgs.foreach { recordMsg =>
-        sendFuture(msgTxnProducer, recordMsg)
-      }
-      msgTxnProducer.commitTransaction()
-
-      if(recordEvents.size>0) {
-        evtTxnProducer.beginTransaction()
-        recordEvents.foreach { recordMsg =>
-          sendFuture(evtTxnProducer, recordMsg)
-        }
-        evtTxnProducer.commitTransaction()
-      }
-      Success()
-    } catch {
-      case pfe:ProducerFencedException => log.error(pfe,"An error occurs");msgTxnProducer.close(); evtTxnProducer.close(); Failure(pfe)
-      case ke:KafkaException => log.error(ke,"An error occurs");msgTxnProducer.abortTransaction(); evtTxnProducer.abortTransaction(); Failure(ke)
-      case e:Throwable => Failure(e)
-    }
-
+  private def writer(index:Int): ActorRef = {
+    context.actorOf(Props(new KafkaJournalWriter(index,config,serialization)).withDispatcher(config.pluginDispatcher))
   }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
@@ -189,7 +92,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
   def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Long = {
     val topic = journalTopic(persistenceId)
-    Math.max(offsetFor(config.offsetConsumerConfig, topic, config.partition)-1,0)
+    Math.max(offsetFor(config.txnAwareConsumerConfig, topic, config.partition)-1,0)
   }
 
   def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] = {
@@ -217,6 +120,87 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
     new MessageIterator(config.txnAwareConsumerConfig, topic, config.partition, Math.max(offset,0)) .map { m =>
        serialization.deserialize(m.value(), classOf[PersistentRepr]).get
     }
+  }
+}
+
+
+private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serialization:Serialization) extends Actor with ActorLogging {
+  var msgProducer = createMessageProducer(index)
+  var evtProducer = createEventProducer(index)
+
+  def receive = {
+    case messages: SeqOfPersistentReprContainer =>
+      val result = writeMessages(messages.messages)
+      sender() ! result
+  }
+
+  private def buildRecords(messages: Seq[PersistentRepr]) = {
+    val recordMsgs = for {
+      m <- messages
+    } yield new ProducerRecord[String, Array[Byte]](journalTopic(m.persistenceId), "static", serialization.serialize(m).get)
+
+    val recordEvents = for {
+      m <- messages
+      e = Event(m.persistenceId, m.sequenceNr, m.payload)
+      t <- config.eventTopicMapper.topicsFor(e)
+    } yield new ProducerRecord(t, e.persistenceId, serialization.serialize(e).get)
+
+    (recordMsgs,recordEvents)
+  }
+
+  private def writeMessages(messages: Seq[PersistentRepr]): Try[Unit] = {
+
+    try {
+      val (recordMsgs, recordEvents) = buildRecords(messages)
+
+      msgProducer.beginTransaction()
+      recordMsgs.foreach { recordMsg =>
+        sendFuture(msgProducer, recordMsg)
+      }
+      msgProducer.commitTransaction()
+
+      if(recordEvents.size>0) {
+        evtProducer.beginTransaction()
+        recordEvents.foreach { recordMsg =>
+          sendFuture(evtProducer, recordMsg)
+        }
+        evtProducer.commitTransaction()
+      }
+      Success()
+    } catch {
+      case pfe:ProducerFencedException => log.error(pfe,"An error occurs")
+        msgProducer.close()
+        evtProducer.close()
+        msgProducer = createMessageProducer(index)
+        evtProducer = createEventProducer(index)
+        Failure(pfe)
+      case ke:KafkaException => log.error(ke,"An error occurs")
+        msgProducer.abortTransaction()
+        evtProducer.abortTransaction()
+        Failure(ke)
+      case e:Throwable => log.error(e,"An error occurs");Failure(e)
+    }
+
+  }
+
+  override def postStop(): Unit = {
+    msgProducer.close()
+    evtProducer.close()
+    super.postStop()
+  }
+
+  private def createMessageProducer(index:Int) = {
+    val conf = config.journalProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-message-$index")
+    val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
+    p.initTransactions()
+    p
+  }
+
+  private def createEventProducer(index:Int) = {
+    val conf = config.eventProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-events-$index")
+    val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
+    p.initTransactions()
+    p
   }
 }
 

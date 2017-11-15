@@ -6,8 +6,13 @@ import kafka.utils._
 import org.apache.kafka.clients.producer.ProducerConfig
 
 class KafkaJournalConfig(config: Config) extends MetadataConsumerConfig(config) {
+  val writerTimeoutMs:Long = config.getLong("writer-timeout-ms")
+
   val pluginDispatcher: String =
     config.getString("plugin-dispatcher")
+
+  val writeConcurrency: Int =
+    config.getInt("write-concurrency")
 
   val eventTopicMapper: EventTopicMapper =
     CoreUtils.createObject[EventTopicMapper](config.getString("event.producer.topic.mapper.class"))
