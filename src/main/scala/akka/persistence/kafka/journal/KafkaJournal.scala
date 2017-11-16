@@ -21,6 +21,7 @@ import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
 
 private case class SeqOfPersistentReprContainer(messages: Seq[PersistentRepr])
+private case object CloseWriter
 
 class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLogging {
   import context.dispatcher
@@ -32,6 +33,10 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
 
   override def postStop(): Unit = {
+    writers.foreach { writer =>
+      writer ! CloseWriter
+      writer ! PoisonPill
+    }
     super.postStop()
   }
 
@@ -54,7 +59,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   // Transient deletions only to pass TCK (persistent not supported)
   var deletions: Deletions = Map.empty
 
-  var writers: Vector[ActorRef] = Vector.tabulate(config.writeConcurrency)(i => writer(i))
+  val writers: Vector[ActorRef] = Vector.tabulate(config.writeConcurrency)(i => writer(i))
 
   val writeTimeout = Timeout(config.writerTimeoutMs.millis)
 
@@ -132,6 +137,9 @@ private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serializat
     case messages: SeqOfPersistentReprContainer =>
       val result = writeMessages(messages.messages)
       sender() ! result
+    case CloseWriter =>
+      msgProducer.close()
+      evtProducer.close()
   }
 
   private def buildRecords(messages: Seq[PersistentRepr]) = {
@@ -190,14 +198,14 @@ private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serializat
   }
 
   private def createMessageProducer(index:Int) = {
-    val conf = config.journalProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-message-$index")
+    val conf = config.journalProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-message-${context.system.name}-$index")
     val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
     p.initTransactions()
     p
   }
 
   private def createEventProducer(index:Int) = {
-    val conf = config.eventProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-events-$index")
+    val conf = config.eventProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-events-${context.system.name}-$index")
     val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
     p.initTransactions()
     p
