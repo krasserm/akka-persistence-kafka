@@ -22,8 +22,10 @@ class KafkaJournalSpec extends JournalPerfSpec (
   val systemConfig = system.settings.config
   ConfigurationOverride.configApp = config.withFallback(systemConfig)
 
-  override def supportsAtomicPersistAllOfSeveralEvents: Boolean = false
+  //override def supportsAtomicPersistAllOfSeveralEvents: Boolean = false
   
   override protected def supportsRejectingNonSerializableObjects: CapabilityFlag = CapabilityFlag.off()
+
+  override protected def supportsSerialization: CapabilityFlag = CapabilityFlag.off()
 
 }
