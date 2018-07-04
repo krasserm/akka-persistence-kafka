@@ -1,5 +1,7 @@
 package akka.persistence.kafka.journal
 
+import java.io.NotSerializableException
+
 import scala.collection.immutable
 import scala.util.{Failure, Success, Try}
 import akka.persistence.journal.AsyncWriteJournal
@@ -20,7 +22,7 @@ import akka.util.Timeout
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
 
-private case class SeqOfPersistentReprContainer(messages: Seq[PersistentRepr])
+private case class SeqOfAtomicWritesPromises(messages: Seq[(AtomicWrite,Promise[Unit])])
 private case object CloseWriter
 
 class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLogging {
@@ -61,18 +63,14 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
   val writers: Vector[ActorRef] = Vector.tabulate(config.writeConcurrency)(i => writer(i))
 
-  val writeTimeout = Timeout(config.writerTimeoutMs.millis)
-
   def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
-    val writes = messages.groupBy(msg => msg.persistenceId).map {
-      case (pid,aws) => writerFor(pid).ask(SeqOfPersistentReprContainer(aws.map{aw=>aw.payload}.flatten))(writeTimeout).mapTo[Try[Unit]]
+    val msgsWithPromises = messages.map{write=>(write, Promise[Unit])}
+
+    msgsWithPromises.groupBy(msg => msg._1.persistenceId).foreach {
+      case (pid,aws) => writerFor(pid)!(SeqOfAtomicWritesPromises(aws))
     }
 
-    Future.sequence(writes.to[immutable.Seq]).map { _ =>
-      Nil //Happy path!!!
-    }.recover {
-      case e:Throwable => immutable.Seq.fill(messages.length)(Failure(e))
-    }
+    Future.sequence(msgsWithPromises.map{ case (_, p) => p.future.map(Success(_)).recover{ case e => Failure(e)}})
   }
 
   private def writerFor(persistenceId: String): ActorRef =
@@ -134,9 +132,8 @@ private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serializat
   var evtProducer = createEventProducer(index)
 
   def receive = {
-    case messages: SeqOfPersistentReprContainer =>
-      val result = writeMessages(messages.messages)
-      sender() ! result
+    case messages: SeqOfAtomicWritesPromises =>
+      writeBatchMessages(messages.messages)
     case CloseWriter =>
       msgProducer.close()
       evtProducer.close()
@@ -156,39 +153,57 @@ private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serializat
     (recordMsgs,recordEvents)
   }
 
-  private def writeMessages(messages: Seq[PersistentRepr]): Try[Unit] = {
 
-    try {
-      val (recordMsgs, recordEvents) = buildRecords(messages)
+  private def writeBatchMessages(batches: Seq[(AtomicWrite,Promise[Unit])]): Unit = {
+    var i = 0
+    var begin = false
 
-      msgProducer.beginTransaction()
-      recordMsgs.foreach { recordMsg =>
-        sendFuture(msgProducer, recordMsg)
-      }
-      msgProducer.commitTransaction()
-
-      if(recordEvents.size>0) {
-        evtProducer.beginTransaction()
-        recordEvents.foreach { recordMsg =>
-          sendFuture(evtProducer, recordMsg)
+    batches.foreach { case (batch, p) =>
+      try {
+        if (!begin) {
+          msgProducer.beginTransaction()
         }
-        evtProducer.commitTransaction()
+        val (recordMsgs, recordEvents) = buildRecords(batch.payload)
+        recordMsgs.foreach { recordMsg =>
+          sendFuture(msgProducer, recordMsg)
+        }
+        if (i == batches.size - 1) {
+          msgProducer.commitTransaction()
+        }
+        if (recordEvents.size > 0) {
+          if (!begin) {
+            evtProducer.beginTransaction()
+          }
+          recordEvents.foreach { recordMsg =>
+            sendFuture(evtProducer, recordMsg)
+          }
+          if (i == batches.size - 1) {
+            evtProducer.commitTransaction()
+          }
+        }
+        p.success()
+        i = i + 1
+        begin = true
+      } catch {
+        case pfe: ProducerFencedException => log.error(pfe, "An error occurs")
+          msgProducer.close()
+          evtProducer.close()
+          msgProducer = createMessageProducer(index)
+          evtProducer = createEventProducer(index)
+          begin = false
+          p.failure(pfe)
+        case ke: KafkaException => log.error(ke, "An error occurs")
+          msgProducer.abortTransaction()
+          evtProducer.abortTransaction()
+          begin = false
+          p.failure(ke)
+        case e: Throwable => log.error(e, "An error occurs")
+          msgProducer.abortTransaction()
+          evtProducer.abortTransaction()
+          begin = false
+          p.failure(e)
       }
-      Success()
-    } catch {
-      case pfe:ProducerFencedException => log.error(pfe,"An error occurs")
-        msgProducer.close()
-        evtProducer.close()
-        msgProducer = createMessageProducer(index)
-        evtProducer = createEventProducer(index)
-        Failure(pfe)
-      case ke:KafkaException => log.error(ke,"An error occurs")
-        msgProducer.abortTransaction()
-        evtProducer.abortTransaction()
-        Failure(ke)
-      case e:Throwable => log.error(e,"An error occurs");Failure(e)
     }
-
   }
 
   override def postStop(): Unit = {

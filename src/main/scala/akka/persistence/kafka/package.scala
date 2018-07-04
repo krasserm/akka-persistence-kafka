@@ -21,13 +21,13 @@ package object kafka {
 
   }
 
-  def sendFuture[K, V](p: KafkaProducer[K, V], rec: ProducerRecord[K, V]): Future[RecordMetadata] = {
-    val promise = Promise[RecordMetadata]()
+  def sendFuture[K, V](p: KafkaProducer[K, V], rec: ProducerRecord[K, V]): Future[Unit] = {
+    val promise = Promise[Unit]()
     p.send(
       rec,
       (metadata: RecordMetadata, exception: Exception) ⇒ {
         if (metadata != null) {
-          promise.complete(Success(metadata))
+          promise.complete(Success())
           ()
         } else {
           promise.complete(Failure(exception))
