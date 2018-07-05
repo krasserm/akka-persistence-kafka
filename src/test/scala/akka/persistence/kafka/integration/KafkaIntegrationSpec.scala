@@ -100,7 +100,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   "A Kafka journal" must {
     "publish all events to the events topic by default" in {
       val eventSeq = for {
-        partition <- 0 until server.configs.head.numPartitions
+        partition <- 0 until (if(server.isDefined) server.get.configs.head.numPartitions else  1 )
         event <- readEvents(partition)
       } yield event
 

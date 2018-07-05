@@ -16,8 +16,6 @@ class KafkaSnapshotStoreSpec extends SnapshotStoreSpec(
       |kafka-snapshot-store.consumer.fetch.message.max.bytes = 11000000
       |kafka-snapshot-store.ignore-orphan = false
       |kafka-snapshot-store.producer.max.request.size = 11000000
-      |test-server.kafka.message.max.bytes = 11000000
-      |test-server.kafka.replica.fetch.max.bytes = 11000000
     """.stripMargin)) with KafkaTest {
   lazy val maxMessageSize = 1000 * 1000 * 11
   val systemConfig = system.settings.config
