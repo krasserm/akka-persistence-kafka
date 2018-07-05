@@ -17,7 +17,7 @@ class MessageIterator(consumerConfig:Map[String,Object], topic: String, partitio
     val tp = new TopicPartition(topic,partition)
     consumer.assign(List(tp).asJava)
     consumer.seek(tp,offset)
-    val it = consumer.poll(100).iterator().asScala
+    val it = consumer.poll(1000).iterator().asScala
     it
   }
 
