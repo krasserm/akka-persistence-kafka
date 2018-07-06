@@ -79,7 +79,7 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
   }
 
   def load(topic: String, matcher: KafkaSnapshot => Boolean): Option[KafkaSnapshot] = {
-    val offset = offsetFor(config.snapshotConsumerConfig, topic, config.partition)
+    val offset = nextOffsetFor(config.snapshotConsumerConfig, topic, config.partition)
 
     @annotation.tailrec
     def load(topic: String, offset: Long): Option[KafkaSnapshot] =

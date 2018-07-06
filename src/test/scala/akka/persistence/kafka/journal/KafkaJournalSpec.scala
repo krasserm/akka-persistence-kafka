@@ -1,9 +1,12 @@
 package akka.persistence.kafka.journal
 
+import akka.actor.Actor
+import akka.persistence.JournalProtocol._
 import com.typesafe.config.ConfigFactory
 import akka.persistence.journal.{JournalPerfSpec, JournalSpec}
 import akka.persistence.kafka.server._
-import akka.persistence.CapabilityFlag
+import akka.persistence._
+import akka.testkit.TestProbe
 
 class KafkaJournalSpec extends JournalPerfSpec (
   config = ConfigFactory.parseString(

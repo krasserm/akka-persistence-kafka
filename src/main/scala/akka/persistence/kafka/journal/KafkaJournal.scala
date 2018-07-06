@@ -95,7 +95,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
   def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Long = {
     val topic = journalTopic(persistenceId)
-    Math.max(offsetFor(config.txnAwareConsumerConfig, topic, config.partition)-1,0)
+    Math.max(nextOffsetFor(config.txnAwareConsumerConfig, topic, config.partition)-1,0)
   }
 
   def asyncReplayMessages(persistenceId: String, fromSequenceNr: Long, toSequenceNr: Long, max: Long)(replayCallback: PersistentRepr => Unit): Future[Unit] = {
