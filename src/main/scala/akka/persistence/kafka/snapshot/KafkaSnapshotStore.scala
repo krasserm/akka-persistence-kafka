@@ -27,6 +27,8 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
   val serialization = SerializationExtension(context.system)
   val config = new KafkaSnapshotStoreConfig(context.system.settings.config.getConfig("kafka-snapshot-store"))
 
+  val snapshotProducer = new KafkaProducer[String, Array[Byte]](config.producerConfig().asJava)
+
   override def postStop(): Unit = {
     super.postStop()
   }
@@ -49,9 +51,9 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
   def saveAsync(metadata: SnapshotMetadata, snapshot: Any): Future[Unit] = {
     val snapshotBytes = serialization.serialize(KafkaSnapshot(metadata, snapshot)).get
     val snapshotMessage = new ProducerRecord[String, Array[Byte]](snapshotTopic(metadata.persistenceId), "static", snapshotBytes)
-    val snapshotProducer = new KafkaProducer[String, Array[Byte]](config.producerConfig().asJava)
+
     // TODO: take a producer from a pool
-    sendFuture(snapshotProducer, snapshotMessage).map { _ => snapshotProducer.close()}
+    sendFuture(snapshotProducer, snapshotMessage)
   }
 
   def loadAsync(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
