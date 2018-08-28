@@ -33,6 +33,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   val serialization = SerializationExtension(context.system)
   val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
 
+  val journalPath = akka.serialization.Serialization.serializedActorPath(self)
 
   override def postStop(): Unit = {
     writers.foreach { writer =>
@@ -77,7 +78,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
     writers(math.abs(persistenceId.hashCode) % config.writeConcurrency)
 
   private def writer(index:Int): ActorRef = {
-    context.actorOf(Props(new KafkaJournalWriter(index,config,serialization)).withDispatcher(config.pluginDispatcher))
+    context.actorOf(Props(new KafkaJournalWriter(journalPath,index,config,serialization)).withDispatcher(config.pluginDispatcher))
   }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
@@ -127,9 +128,9 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 }
 
 
-private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serialization:Serialization) extends Actor with ActorLogging {
-  var msgProducer = createMessageProducer(index)
-  var evtProducer = createEventProducer(index)
+private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJournalConfig,serialization:Serialization) extends Actor with ActorLogging {
+  var msgProducer = createMessageProducer(journalPath,index)
+  var evtProducer = createEventProducer(journalPath,index)
 
   def receive = {
     case messages: SeqOfAtomicWritesPromises =>
@@ -188,8 +189,8 @@ private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serializat
         case pfe: ProducerFencedException => log.error(pfe, "An error occurs")
           msgProducer.close()
           evtProducer.close()
-          msgProducer = createMessageProducer(index)
-          evtProducer = createEventProducer(index)
+          msgProducer = createMessageProducer(journalPath,index)
+          evtProducer = createEventProducer(journalPath,index)
           begin = false
           p.failure(pfe)
         case ke: KafkaException => log.error(ke, "An error occurs")
@@ -212,15 +213,15 @@ private class KafkaJournalWriter(index:Int,config: KafkaJournalConfig,serializat
     super.postStop()
   }
 
-  private def createMessageProducer(index:Int) = {
-    val conf = config.journalProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-message-${context.system.name}-$index")
+  private def createMessageProducer(journalPath:String, index:Int) = {
+    val conf = config.journalProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-messages-$journalPath-$index")
     val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
     p.initTransactions()
     p
   }
 
-  private def createEventProducer(index:Int) = {
-    val conf = config.eventProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-events-${context.system.name}-$index")
+  private def createEventProducer(journalPath:String, index:Int) = {
+    val conf = config.eventProducerConfig() ++ Map(ProducerConfig.TRANSACTIONAL_ID_CONFIG -> s"akka-journal-events-$journalPath-$index")
     val p = new KafkaProducer[String, Array[Byte]](conf.asJava)
     p.initTransactions()
     p
