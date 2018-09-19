@@ -95,7 +95,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
     readMessages("events", partition).map(m => eventDecoder.fromBytes(m.value))
 
   def readMessages(topic: String, partition: Int): Seq[ConsumerRecord[String, Array[Byte]]] =
-    new MessageIterator(journalConfig.txnAwareConsumerConfig++Map(ConsumerConfig.GROUP_ID_CONFIG -> "journal-test-reader"), topic, partition, 0).toVector
+    new MessageIterator(journalConfig.txnAwareConsumerConfig++Map(ConsumerConfig.GROUP_ID_CONFIG -> "journal-test-reader"), topic, partition, 0, journalConfig.pollTimeOut).toVector
 
   "A Kafka journal" must {
     "publish all events to the events topic by default" in {

@@ -108,7 +108,9 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
   }
 
   private def snapshot(topic: String, offset: Long): KafkaSnapshot = {
-    val iter = new MessageIterator(config.snapshotConsumerConfig, topic, config.partition, offset)
+    val iter = new MessageIterator(config.snapshotConsumerConfig, topic, config.partition, offset, config.pollTimeOut)
+    if(!iter.hasNext && offset>0)
+      log.warning(s"Strange: Offset is not 0 ($offset), But iterator is empty. Perhaps you should increase the poll-timeout parameter (${config.pollTimeOut} ms)")
     try { serialization.deserialize(iter.next().value(), classOf[KafkaSnapshot]).get } finally { iter.close() }
   }
 

@@ -121,7 +121,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   }
 
   def persistentIterator(topic: String, offset: Long): Iterator[PersistentRepr] = {
-    new MessageIterator(config.txnAwareConsumerConfig, topic, config.partition, Math.max(offset,0)) .map { m =>
+    new MessageIterator(config.txnAwareConsumerConfig, topic, config.partition, Math.max(offset,0), config.pollTimeOut) .map { m =>
        serialization.deserialize(m.value(), classOf[PersistentRepr]).get
     }
   }
