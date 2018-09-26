@@ -1,5 +1,6 @@
 Kafka Plugins for Akka Persistence
 ==================================
+This is a fork of the [Krasserm project](https://github.com/krasserm/akka-persistence-kafka). It has been deployed in production and works well on our environments.
 
 Replicated [Akka Persistence](http://doc.akka.io/docs/akka/2.3.11/scala/persistence.html) journal and snapshot store backed by [Apache Kafka](http://kafka.apache.org/).
 
@@ -34,7 +35,7 @@ To activate the journal plugin, add the following line to `application.conf`:
 
     akka.persistence.journal.plugin = "kafka-journal"
 
-This will run the journal plugin with default settings and connect to a Zookeeper instance running on `localhost:2181`. The Zookeeper connect string can be customized with the `kafka-journal.zookeeper.connect` configuration key (see also section [Kafka cluster](#kafka-cluster)). Recommended Kafka broker configurations are given in section [Configuration hints](#configuration-hints).
+This will run the journal plugin with default settings and connect to a Kafka instance running on `localhost:9092`. The Kafka connect string can be customized with the `kafka-journal.producer.bootstrap.servers`, `kafka-journal.event.producer.bootstrap.servers` and `kafka-journal.consumer.bootstrap.servers` configuration keys (see also section [Kafka cluster](#kafka-cluster)). Recommended Kafka broker configurations are given in section [Configuration hints](#configuration-hints).
 
 ### Use cases 
 
@@ -201,7 +202,7 @@ To activate the snapshot store plugin, add the following line to `application.co
 
     akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
 
-This will run the snapshot store plugin with default settings and connect to a Zookeeper instance running on `localhost:2181`. The Zookeeper connect string can be customized with the `kafka-snapshot-store.zookeeper.connect` configuration key (see also section [Kafka cluster](#kafka-cluster)). Recommended Kafka broker configurations are given in section [Configuration hints](#configuration-hints).
+This will run the snapshot store plugin with default settings and connect to a Kafka instance running on `localhost:9092`. The Kafka connect string can be customized with the `kafka-journal.event.producer.bootstrap.servers` and `kafka-journal.consumer.bootstrap.servers` configuration keys (see also section [Kafka cluster](#kafka-cluster)). Recommended Kafka broker configurations are given in section [Configuration hints](#configuration-hints).
 
 ### Snapshot topics
 
@@ -268,6 +269,20 @@ See also section [Usage hints](#usage-hints).
 Reference configuration
 -----------------------
 
+    akka {
+      actor {
+        serializers {
+          kafka-event = "akka.persistence.kafka.journal.KafkaEventSerializer"
+          kafka-snapshot = "akka.persistence.kafka.snapshot.KafkaSnapshotSerializer"
+        }
+    
+        serialization-bindings {
+          "akka.persistence.kafka.Event" = kafka-event
+          "akka.persistence.kafka.snapshot.KafkaSnapshot" = kafka-snapshot
+        }
+      }
+    }
+    
     kafka-journal {
     
       # FQCN of the Kafka journal plugin
@@ -279,7 +294,10 @@ Reference configuration
       # Number of concurrent writers (should be <= number of available threads in
       # dispatcher).
       write-concurrency = 8
-
+    
+      # Time in milliseconds to wait for a writer to complete a batch
+      writer-timeout-ms = 5000
+    
       # The partition to use when publishing to and consuming from journal topics.
       partition = 0
     
@@ -302,11 +320,7 @@ Reference configuration
         # See http://kafka.apache.org/documentation.html#simpleconsumerapi
         # -------------------------------------------------------------------
     
-        socket.timeout.ms = 30000
-    
-        socket.receive.buffer.bytes = 65536
-    
-        fetch.message.max.bytes = 1048576
+        poll-timeout = 3000
       }
     
       producer {
@@ -315,27 +329,16 @@ Reference configuration
         #
         # See http://kafka.apache.org/documentation.html#producerconfigs
         #
-        # The metadata.broker.list property is set dynamically by the journal.
-        # No need to set it here.
         # -------------------------------------------------------------------
     
-        request.required.acks = 1
-    
-        # DO NOT CHANGE!
-        producer.type = "sync"
-    
-        # DO NOT CHANGE!
-        partitioner.class = "akka.persistence.kafka.StickyPartitioner"
-    
-        # DO NOT CHANGE!
-        key.serializer.class = "kafka.serializer.StringEncoder"
+        acks = -1
     
         # Increase if hundreds of topics are created during initialization.
-        message.send.max.retries = 5
-
+        retries = 5
+    
         # Increase if hundreds of topics are created during initialization.
         retry.backoff.ms = 100
-
+    
         # Add further Kafka producer settings here, if needed.
         # ...
       }
@@ -347,31 +350,15 @@ Reference configuration
         # See http://kafka.apache.org/documentation.html#producerconfigs
         # -------------------------------------------------------------------
     
-        producer.type = "sync"
-    
-        request.required.acks = 0
+        acks = -1
     
         topic.mapper.class = "akka.persistence.kafka.DefaultEventTopicMapper"
     
-        key.serializer.class = "kafka.serializer.StringEncoder"
     
         # Add further Kafka producer settings here, if needed.
         # ...
       }
     
-      zookeeper {
-        # -------------------------------------------------------------------
-        # Zookeeper client configuration
-        # -------------------------------------------------------------------
-    
-        connect = "localhost:2181"
-    
-        session.timeout.ms = 6000
-    
-        connection.timeout.ms = 6000
-    
-        sync.time.ms = 2000
-      }
     }
     
     kafka-snapshot-store {
@@ -388,6 +375,12 @@ Reference configuration
       # Topic name prefix (which prepended to persistenceId)
       prefix = "snapshot-"
     
+      # If set to true snapshots with sequence numbers higher than the sequence number
+      # of the latest entry in their corresponding journal topic are ignored. This is
+      # necessary to recover from certain Kafka failure scenarios. Should only be set
+      # to false for isolated snapshot store tests.
+      ignore-orphan = true
+    
       # Default dispatcher for plugin actor.
       default-dispatcher {
         type = Dispatcher
@@ -400,18 +393,14 @@ Reference configuration
     
       consumer {
         # -------------------------------------------------------------------
-        # Simple consumer configuration (used for loading snapshots and
+        # New consumer configuration (used for loading snapshots and
         # reading metadata).
         #
         # See http://kafka.apache.org/documentation.html#consumerconfigs
-        # See http://kafka.apache.org/documentation.html#simpleconsumerapi
+        # See http://kafka.apache.org/documentation.html#consumerapi
         # -------------------------------------------------------------------
     
-        socket.timeout.ms = 30000
-    
-        socket.receive.buffer.bytes = 65536
-    
-        fetch.message.max.bytes = 1048576
+        poll-timeout = 3000
       }
     
       producer {
@@ -420,77 +409,18 @@ Reference configuration
         #
         # See http://kafka.apache.org/documentation.html#producerconfigs
         #
-        # The metadata.broker.list property is set dynamically by the journal.
-        # No need to set it here.
         # -------------------------------------------------------------------
     
-        request.required.acks = 1
+        acks = -1
     
-        producer.type = "sync"
+        # Increase if hundreds of topics are created during initialization.
+        retries = 5
     
-        # DO NOT CHANGE!
-        partitioner.class = "akka.persistence.kafka.StickyPartitioner"
-    
-        # DO NOT CHANGE!
-        key.serializer.class = "kafka.serializer.StringEncoder"
+        # Increase if hundreds of topics are created during initialization.
+        retry.backoff.ms = 500
     
         # Add further Kafka producer settings here, if needed.
         # ...
       }
     
-      zookeeper {
-        # -------------------------------------------------------------------
-        # Zookeeper client configuration
-        # -------------------------------------------------------------------
-    
-        connect = "localhost:2181"
-    
-        session.timeout.ms = 6000
-    
-        connection.timeout.ms = 6000
-    
-        sync.time.ms = 2000
-      }
     }
-    
-    test-server {
-      # -------------------------------------------------------------------
-      # Test Kafka and Zookeeper server configuration.
-      #
-      # See http://kafka.apache.org/documentation.html#brokerconfigs
-      # -------------------------------------------------------------------
-    
-      zookeeper {
-    
-        port = 2181
-    
-        dir = "data/zookeeper"
-      }
-    
-      kafka {
-    
-        broker.id = 1
-    
-        port = 6667
-    
-        num.partitions = 2
-    
-        log.cleanup.policy = "compact"
-    
-        log.dirs = data/kafka
-    
-        log.index.size.max.bytes = 1024
-      }
-    }
-    
-    akka {
-      actor {
-        serializers {
-          kafka-snapshot = "akka.persistence.kafka.snapshot.KafkaSnapshotSerializer"
-        }
-    
-        serialization-bindings {
-          "akka.persistence.kafka.snapshot.KafkaSnapshot" = kafka-snapshot
-        }
-      }
-    }    
