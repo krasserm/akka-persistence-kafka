@@ -240,29 +240,37 @@ If you want to run a Kafka cluster on a single node, you may find [this article]
 
 ### Test server
 
-To use the test server, the following additional dependencies must be added to `build.sbt`:
+The test server code is based on the test server provided by the kafka team: kafka.integration.KafkaServerTestHarness .
 
-    libraryDependencies ++= Seq(
-      "com.github.krasserm" %% "akka-persistence-kafka" % "0.4" % "test" classifier "tests",
-      "org.apache.curator" % "curator-test" % "2.7.1" % "test"
-    )
+The `TestServer` configuration can be customized with the `test-server.*` configuration keys. Here it is an example:
 
-This makes the `TestServer` class available which can be used to start a single Kafka and Zookeeper instance:
-
-```scala
-import akka.persistence.kafka.server.TestServer
-
-// start a local Kafka and Zookeeper instance
-val server = new TestServer() 
-
-// use the local instance
-// ...
-
-// and stop it
-server.stop()
-```
-
-The `TestServer` configuration can be customized with the `test-server.*` configuration keys (see [reference configuration](#reference-configuration) for details).
+    test-server {
+      # -------------------------------------------------------------------
+      # Test Kafka server configuration.
+      #
+      # See http://kafka.apache.org/documentation.html#brokerconfigs
+      # -------------------------------------------------------------------
+    
+      kafka {
+    
+        broker.id = 1
+    
+        port = 6667
+    
+        num.partitions = 1
+    
+        log.cleanup.policy = "compact"
+    
+        log.dirs = data/kafka
+    
+        log.index.size.max.bytes = 1024
+    
+        transaction.state.log.replication.factor = 1
+        transaction.state.log.min.isr = 1
+        message.max.bytes = 11000000
+        replica.fetch.max.bytes = 11000000
+      }
+    }
 
 ### Configuration hints
 
