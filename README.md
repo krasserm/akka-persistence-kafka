@@ -180,7 +180,6 @@ There are many other libraries that can be used to consume (event) streams from 
 
 ### Implementation notes
 
-- During initialization, the journal plugin fetches cluster metadata from Zookeeper which may take up to a few seconds.
 - The journal plugin always writes `PersistentRepr` entries to partition 0 of journal topics. This ensures that all events written by a single persistent actor are stored in correct order. Later versions of the plugin may switch to a higher partition after having written a configurable number of events to the current partition. 
 - The journal plugin distributes `Event` entries to all available partitions of user-defined topics. The partition key is the event's `persistenceId` so that a partial ordering of events is preserved when consuming events from user-defined topics. In other words, events written by a single persistent actor are always consumed in correct order but the relative ordering of events from different persistent actors is not defined.  
 
@@ -211,7 +210,6 @@ For example, if an actor's `persistenceId` is `example`, its snapshots are publi
 
 ### Implementation notes
 
-- During initialization, the journal plugin fetches cluster metadata from Zookeeper which may take up to a few seconds.
 - The journal plugin always writes snapshots to partition 0 of snapshot topics.  
 
 ### Current limitations
@@ -223,10 +221,15 @@ Kafka
 
 ### Kafka cluster
 
-To connect to an existing Kafka cluster, an application must set a value for the `kafka-journal.zookeeper.connect` key in its `application.conf`:  
+To connect to an existing Kafka cluster, an application must set a value for the keys in its `application.conf`:  
 
-    kafka-journal.zookeeper.connect = "<host1>:<port1>,<host2>:<port2>,..."
-
+    #Tips: define a global variable for the kafka cluster
+    kafka-cluster = "<host1>:<port1>,<host2>:<port2>,..."
+     
+    kafka-journal.producer.bootstrap.servers = ${kafka-cluster}
+    kafka-journal.event.producer.bootstrap.servers = ${kafka-cluster}
+    kafka-journal.consumer.bootstrap.servers = ${kafka-cluster}
+    
 If you want to run a Kafka cluster on a single node, you may find [this article](http://www.michael-noll.com/blog/2013/03/13/running-a-multi-broker-apache-kafka-cluster-on-a-single-node/) useful.
 
 ### Test server
