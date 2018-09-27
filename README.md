@@ -261,7 +261,7 @@ The following [broker configurations](http://kafka.apache.org/documentation.html
 
 - `num.partitions` should be set to `1` by default because the plugins only write to partition 0 of [journal topics](#journal-topics) and [snapshot topics](#snapshot-topics). If a higher number of partitions is needed for [user-defined topics](#user-defined-topics) (e.g. for scalability or throughput reasons) then this should be configured manually with the `kafka-topics` command line tool. 
 - `default.replication.factor` should be set to at least `2` for high-availability of topics created by the plugins.
-- `message.max.bytes` and `replica.fetch.max.bytes` should be set to a value that is larger than the largest snapshot size. The default value is `1024 * 1024` which may be large enough for journal entries but likely to small for snapshots. When changing these settings make sure to also set `kafka-snapshot-store.consumer.fetch.message.max.bytes` and `kafka-journal.consumer.fetch.message.max.bytes` to this value.     
+- `message.max.bytes` and `replica.fetch.max.bytes` should be set to a value that is larger than the largest snapshot size. The default value is `1024 * 1024` which may be large enough for journal entries but likely to small for snapshots. When changing these settings make sure to also set `kafka-snapshot-store.consumer.fetch.max.bytes` and `kafka-journal.consumer.fetch.max.bytes` to this value.     
 - `log.cleanup.policy` must be set to `"compact"` otherwise the most recent snapshot may be deleted if the retention time is exceeded and complete state recovery of persistent actors is not possible any more.  
 
 See also section [Usage hints](#usage-hints).
