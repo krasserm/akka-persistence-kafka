@@ -223,12 +223,18 @@ Kafka
 
 To connect to an existing Kafka cluster, an application must set a value for the keys in its `application.conf`:  
 
-    #Tips: define a global variable for the kafka cluster
+    # Tips: define a global variable for the kafka cluster
     kafka-cluster = "<host1>:<port1>,<host2>:<port2>,..."
-     
+    
+    # For the kafka journal
     kafka-journal.producer.bootstrap.servers = ${kafka-cluster}
     kafka-journal.event.producer.bootstrap.servers = ${kafka-cluster}
     kafka-journal.consumer.bootstrap.servers = ${kafka-cluster}
+    
+    # For the kafka snapshot store
+    kafka-snapshot-store.producer.bootstrap.servers = ${kafka-cluster}
+    kafka-snapshot-store.consumer.bootstrap.servers = ${kafka-cluster}
+ 
     
 If you want to run a Kafka cluster on a single node, you may find [this article](http://www.michael-noll.com/blog/2013/03/13/running-a-multi-broker-apache-kafka-cluster-on-a-single-node/) useful.
 
