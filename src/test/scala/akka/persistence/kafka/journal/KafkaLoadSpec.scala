@@ -5,11 +5,11 @@ import akka.actor._
 import akka.persistence.PersistentActor
 import akka.persistence.kafka.server._
 import akka.testkit._
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.{Config, ConfigFactory}
 import org.scalatest._
 
 object KafkaLoadSpec {
-  val config = ConfigFactory.parseString(
+  val config: Config = ConfigFactory.parseString(
     """
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
@@ -21,13 +21,13 @@ object KafkaLoadSpec {
     """.stripMargin)
 
   trait Measure extends { this: Actor ⇒
-    val NanoToSecond = 1000.0 * 1000 * 1000
+    val NanoToSecond: Double = 1000.0 * 1000 * 1000
 
     var startTime: Long = 0L
     var stopTime: Long = 0L
 
-    var startSequenceNr = 0L;
-    var stopSequenceNr = 0L;
+    var startSequenceNr = 0L
+    var stopSequenceNr = 0L
 
     def startMeasure(): Unit = {
       startSequenceNr = lastSequenceNr
@@ -56,7 +56,7 @@ object KafkaLoadSpec {
     }
 
     def handle: Receive = {
-      case payload: String =>
+      case _: String =>
     }
   }
 }
@@ -64,7 +64,7 @@ object KafkaLoadSpec {
 class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaTest {
   import KafkaLoadSpec._
 
-  val systemConfig = system.settings.config
+  val systemConfig: Config = system.settings.config
 
   ConfigurationOverride.configApp = config.withFallback(systemConfig)
 
@@ -79,10 +79,10 @@ class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) w
       val loadCycles = 1000L // set to 300000L to get reasonable results
 
       val processor1 = system.actorOf(Props(classOf[TestPersistentActor], "test"))
-      1L to warmCycles foreach { i => processor1 ! "a" }
+      1L to warmCycles foreach { _ => processor1 ! "a" }
       processor1 ! "start"
       expectMsg("started")
-      1L to loadCycles foreach { i => processor1 ! "a" }
+      1L to loadCycles foreach { _ => processor1 ! "a" }
       processor1 ! "stop"
       expectMsgPF(100.seconds) { case throughput: Double ⇒ println(f"\nthroughput = $throughput%.2f persistent commands per second") }
     }

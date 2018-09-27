@@ -1,7 +1,6 @@
 package akka.persistence
 
 import scala.collection.JavaConverters._
-import java.util.Properties
 
 import com.typesafe.config.Config
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}

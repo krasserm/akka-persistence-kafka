@@ -1,23 +1,18 @@
 package akka.persistence.kafka.journal
 
-import java.io.NotSerializableException
-
 import scala.collection.immutable
 import scala.util.{Failure, Success, Try}
 import akka.persistence.journal.AsyncWriteJournal
 import akka.serialization.{Serialization, SerializationExtension}
 
 import scala.concurrent.{Future, Promise}
-import scala.concurrent.duration._
 import akka.actor._
-import akka.pattern.ask
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.persistence.kafka._
 import akka.persistence.kafka.journal.KafkaJournalProtocol._
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.errors.ProducerFencedException
-import akka.util.Timeout
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
@@ -33,7 +28,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   val serialization = SerializationExtension(context.system)
   val config = new KafkaJournalConfig(context.system.settings.config.getConfig("kafka-journal"))
 
-  val journalPath = akka.serialization.Serialization.serializedActorPath(self)
+  val journalPath: String = akka.serialization.Serialization.serializedActorPath(self)
 
   override def postStop(): Unit = {
     writers.foreach { writer =>
@@ -46,7 +41,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   override def receivePluginInternal: Receive = localReceive.orElse(super.receivePluginInternal)
 
   private def localReceive: Receive = {
-    case ReadHighestSequenceNr(fromSequenceNr, persistenceId, persistentActor) =>
+    case ReadHighestSequenceNr(fromSequenceNr, persistenceId, _) =>
       try {
         val highest = readHighestSequenceNr(persistenceId, fromSequenceNr)
         sender ! ReadHighestSequenceNrSuccess(highest)
@@ -68,7 +63,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
     val msgsWithPromises = messages.map{write=>(write, Promise[Unit])}
 
     msgsWithPromises.groupBy(msg => msg._1.persistenceId).foreach {
-      case (pid,aws) => writerFor(pid)!(SeqOfAtomicWritesPromises(aws))
+      case (pid,aws) => writerFor(pid)!SeqOfAtomicWritesPromises(aws)
     }
 
     Future.sequence(msgsWithPromises.map{ case (_, p) => p.future.map(Success(_)).recover{ case e => Failure(e)}})
@@ -82,7 +77,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   }
 
   def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
-    Future.successful(deleteMessagesTo(persistenceId, toSequenceNr, false))
+    Future.successful(deleteMessagesTo(persistenceId, toSequenceNr, permanent = false))
 
   def deleteMessagesTo(persistenceId: String, toSequenceNr: Long, permanent: Boolean): Unit =
     deletions = deletions + (persistenceId -> (toSequenceNr, permanent))
@@ -111,11 +106,9 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
     val adjustedNum = toSequenceNr - adjustedFrom + 1L
     val adjustedTo = if (max < adjustedNum) adjustedFrom + max - 1L else toSequenceNr
 
-    val lastSequenceNr = {
-      val iter = persistentIterator(journalTopic(persistenceId), adjustedFrom - 1L)
-      iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(adjustedFrom) {
-        case (snr, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
-      }
+    val iter = persistentIterator(journalTopic(persistenceId), adjustedFrom - 1L)
+    iter.map(p => if (!permanent && p.sequenceNr <= deletedTo) p.update(deleted = true) else p).foldLeft(adjustedFrom) {
+      case (_, p) => if (p.sequenceNr >= adjustedFrom && p.sequenceNr <= adjustedTo) callback(p); p.sequenceNr
     }
 
   }
@@ -129,10 +122,10 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
 
 
 private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJournalConfig,serialization:Serialization) extends Actor with ActorLogging {
-  var msgProducer = createMessageProducer(journalPath,index)
-  var evtProducer = createEventProducer(journalPath,index)
+  var msgProducer: KafkaProducer[String, Array[Byte]] = createMessageProducer(journalPath,index)
+  var evtProducer: KafkaProducer[String, Array[Byte]] = createEventProducer(journalPath,index)
 
-  def receive = {
+  def receive: PartialFunction[Any, Unit] = {
     case messages: SeqOfAtomicWritesPromises =>
       writeBatchMessages(messages.messages)
     case CloseWriter =>
@@ -171,7 +164,7 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
         if (i == batches.size - 1) {
           msgProducer.commitTransaction()
         }
-        if (recordEvents.size > 0) {
+        if (recordEvents.nonEmpty) {
           if (!begin) {
             evtProducer.beginTransaction()
           }

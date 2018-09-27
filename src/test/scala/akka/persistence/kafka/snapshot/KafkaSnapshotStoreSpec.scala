@@ -17,8 +17,8 @@ class KafkaSnapshotStoreSpec extends SnapshotStoreSpec(
       |kafka-snapshot-store.ignore-orphan = false
       |kafka-snapshot-store.producer.max.request.size = 11000000
     """.stripMargin)) with KafkaTest {
-  lazy val maxMessageSize = 1000 * 1000 * 11
-  val systemConfig = system.settings.config
+  lazy val maxMessageSize: Int = 1000 * 1000 * 11
+  val systemConfig: Config = system.settings.config
   ConfigurationOverride.configApp = config.withFallback(systemConfig)
 
   "A Kafka snapshot store" must {

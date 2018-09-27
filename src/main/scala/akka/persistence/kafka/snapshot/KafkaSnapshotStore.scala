@@ -4,7 +4,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 
 import akka.actor._
-import akka.pattern.{ask, pipe}
+import akka.pattern.ask
 import akka.persistence._
 import akka.persistence.snapshot.SnapshotStore
 import akka.persistence.kafka._
@@ -16,7 +16,6 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
 import scala.collection.JavaConverters._
 
 class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorLogging {
-  import SnapshotProtocol._
   import context.dispatcher
 
   val extension = Persistence(context.system)
@@ -99,7 +98,7 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
 
   private def highestJournalSequenceNr(persistenceId: String): Future[Long] = {
     val journal = extension.journalFor(null)
-    implicit val timeout = Timeout(5 seconds)
+    implicit val timeout: Timeout = Timeout(5 seconds)
     val res = journal ? ReadHighestSequenceNr(0L, persistenceId, self)
     res.flatMap {
       case ReadHighestSequenceNrSuccess(snr) => Future.successful(snr+1)

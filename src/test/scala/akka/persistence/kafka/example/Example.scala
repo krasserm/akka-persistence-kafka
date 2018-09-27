@@ -15,6 +15,7 @@ import com.typesafe.config.ConfigFactory
 import kafka.consumer.{Consumer, ConsumerConfig}
 import kafka.serializer.{DefaultDecoder, StringDecoder}
 
+@deprecated
 class ExampleProcessor(val persistenceId: String) extends PersistentActor {
   import ExampleProcessor.Increment
 

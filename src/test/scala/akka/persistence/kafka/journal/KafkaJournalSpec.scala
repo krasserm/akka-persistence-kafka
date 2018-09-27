@@ -1,12 +1,9 @@
 package akka.persistence.kafka.journal
 
-import akka.actor.Actor
-import akka.persistence.JournalProtocol._
-import com.typesafe.config.ConfigFactory
-import akka.persistence.journal.{JournalPerfSpec, JournalSpec}
+import com.typesafe.config.{Config, ConfigFactory}
+import akka.persistence.journal.JournalPerfSpec
 import akka.persistence.kafka.server._
 import akka.persistence._
-import akka.testkit.TestProbe
 
 class KafkaJournalSpec extends JournalPerfSpec (
   config = ConfigFactory.parseString(
@@ -22,7 +19,7 @@ class KafkaJournalSpec extends JournalPerfSpec (
   /** Number of measurement iterations each test will be run. */
   override def measurementIterations: Int = 10
 
-  val systemConfig = system.settings.config
+  val systemConfig: Config = system.settings.config
   ConfigurationOverride.configApp = config.withFallback(systemConfig)
 
   override def supportsAtomicPersistAllOfSeveralEvents: Boolean = true

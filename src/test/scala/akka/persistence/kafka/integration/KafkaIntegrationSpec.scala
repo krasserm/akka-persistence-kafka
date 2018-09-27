@@ -10,12 +10,12 @@ import akka.persistence.kafka.server._
 import akka.persistence.kafka.snapshot.KafkaSnapshotStoreConfig
 import akka.serialization.SerializationExtension
 import akka.testkit._
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.{Config, ConfigFactory}
 import org.scalatest._
 import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
 
 object KafkaIntegrationSpec {
-  val config = ConfigFactory.parseString(
+  val config: Config = ConfigFactory.parseString(
     """
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
@@ -24,12 +24,12 @@ object KafkaIntegrationSpec {
     """.stripMargin)
 
   class TestPersistentActor(val persistenceId: String, probe: ActorRef) extends PersistentActor {
-    def receiveCommand = {
+    def receiveCommand: PartialFunction[Any, Unit] = {
       case s: String =>
         persist(s)(s => probe ! s)
     }
 
-    def receiveRecover = {
+    def receiveRecover: PartialFunction[Any, Unit] = {
       case s: SnapshotOffer =>
         probe ! s
       case s: String =>
@@ -50,7 +50,7 @@ object KafkaIntegrationSpec {
 class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaTest {
   import KafkaIntegrationSpec._
 
-  val systemConfig = system.settings.config
+  val systemConfig: Config = system.settings.config
   ConfigurationOverride.configApp = config.withFallback(systemConfig)
   val journalConfig = new KafkaJournalConfig(systemConfig.getConfig("kafka-journal"))
   val storeConfig = new KafkaSnapshotStoreConfig(systemConfig.getConfig("kafka-snapshot-store"))
@@ -59,14 +59,14 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
   val eventDecoder = new EventDecoder(system)
 
   val persistence = Persistence(system)
-  val journal = persistence.journalFor(null)
-  val store = persistence.snapshotStoreFor(null)
+  val journal: ActorRef = persistence.journalFor(null)
+  val store: ActorRef = persistence.snapshotStoreFor(null)
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    writeJournal("pa", 1 to 3 map { i => s"a-${i}" })
-    writeJournal("pb", 1 to 3 map { i => s"b-${i}" })
-    writeJournal("pc", 1 to 3 map { i => s"c-${i}" })
+    writeJournal("pa", 1 to 3 map { i => s"a-$i" })
+    writeJournal("pb", 1 to 3 map { i => s"b-$i" })
+    writeJournal("pc", 1 to 3 map { i => s"c-$i" })
   }
 
   override def afterAll(): Unit = {
@@ -79,7 +79,7 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
     try { body(actor) } finally { system.stop(actor) }
   }*/
 
-  def withPersistentActor(persistenceId: String)(body: ActorRef => Unit) = {
+  def withPersistentActor(persistenceId: String)(body: ActorRef => Unit): Unit = {
     val actor = system.actorOf(Props(new TestPersistentActor(persistenceId, testActor)))
     try { body(actor) } finally { system.stop(actor) }
   }

@@ -1,11 +1,7 @@
 package akka.persistence.kafka
 
-import kafka.api.{OffsetRequest, PartitionOffsetRequestInfo}
-import kafka.common.TopicAndPartition
-import kafka.consumer.SimpleConsumer
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.protocol.Errors
 
 import scala.collection.JavaConverters._
 

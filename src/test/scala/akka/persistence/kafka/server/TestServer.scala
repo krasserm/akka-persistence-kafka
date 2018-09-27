@@ -5,7 +5,7 @@ import java.util.Properties
 import com.typesafe.config._
 import kafka.integration.KafkaServerTestHarness
 import kafka.server._
-import kafka.utils.{TestUtils, ZkUtils}
+import kafka.utils.TestUtils
 
 import scala.collection.JavaConverters._
 
@@ -23,12 +23,12 @@ object Configuration {
     // We just want to initialize the configuration, which is now done
   }
 
-  val configApp = Option(ConfigurationOverride.configApp).getOrElse(ConfigFactory.load())
+  val configApp: Config = Option(ConfigurationOverride.configApp).getOrElse(ConfigFactory.load())
 
 }
 
 class TestServer(config: Config) extends KafkaServerTestHarness {
-  val kafkaConfig = config.getConfig("kafka")
+  val kafkaConfig: Config = config.getConfig("kafka")
 
   private def serverProps() = {
     val serverProps = new Properties()
