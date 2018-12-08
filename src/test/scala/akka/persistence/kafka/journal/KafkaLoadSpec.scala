@@ -13,7 +13,7 @@ object KafkaLoadSpec {
     """
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
-      |akka.test.single-expect-default = 10s
+      |akka.test.single-expect-default = 20s
       |kafka-journal.event.producer.request.required.acks = 1
       |kafka-journal.event.producer.topic.mapper.class = "akka.persistence.kafka.EmptyEventTopicMapper"
       |kafka-journal.zookeeper.connection.timeout.ms = 10000
@@ -75,8 +75,8 @@ class KafkaLoadSpec extends TestKit(ActorSystem("test", KafkaLoadSpec.config)) w
 
   "A Kafka Journal" must {
     "have some reasonable throughput" in {
-      val warmCycles = 100L  // set to 10000L to get reasonable results
-      val loadCycles = 1000L // set to 300000L to get reasonable results
+      val warmCycles = 10L  // set to 10000L to get reasonable results
+      val loadCycles = 100L // set to 300000L to get reasonable results
 
       val processor1 = system.actorOf(Props(classOf[TestPersistentActor], "test"))
       1L to warmCycles foreach { _ => processor1 ! "a" }

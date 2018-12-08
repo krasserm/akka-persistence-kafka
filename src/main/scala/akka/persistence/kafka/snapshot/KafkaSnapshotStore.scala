@@ -98,7 +98,7 @@ class KafkaSnapshotStore extends SnapshotStore with MetadataConsumer with ActorL
 
   private def highestJournalSequenceNr(persistenceId: String): Future[Long] = {
     val journal = extension.journalFor(null)
-    implicit val timeout: Timeout = Timeout(5 seconds)
+    implicit val timeout: Timeout = Timeout(50 seconds)
     val res = journal ? ReadHighestSequenceNr(0L, persistenceId, self)
     res.flatMap {
       case ReadHighestSequenceNrSuccess(snr) => Future.successful(snr+1)

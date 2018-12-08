@@ -12,7 +12,7 @@ class KafkaSnapshotStoreSpec extends SnapshotStoreSpec(
     s"""
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
-      |akka.test.single-expect-default = 10s
+      |akka.test.single-expect-default = 20s
       |kafka-snapshot-store.consumer.fetch.message.max.bytes = 11000000
       |kafka-snapshot-store.ignore-orphan = false
       |kafka-snapshot-store.producer.max.request.size = 11000000

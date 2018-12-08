@@ -19,7 +19,7 @@ object KafkaIntegrationSpec {
     """
       |akka.persistence.journal.plugin = "kafka-journal"
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
-      |akka.test.single-expect-default = 10s
+      |akka.test.single-expect-default = 20s
       |kafka-journal.event.producer.request.required.acks = 1
     """.stripMargin)
 

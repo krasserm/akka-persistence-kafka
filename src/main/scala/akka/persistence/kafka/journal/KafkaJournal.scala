@@ -14,6 +14,7 @@ import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, Produce
 import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.errors.ProducerFencedException
 
+import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
 
@@ -147,57 +148,74 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
     (recordMsgs,recordEvents)
   }
 
-
+  @tailrec
   private def writeBatchMessages(batches: Seq[(AtomicWrite,Promise[Unit])]): Unit = {
-    var i = 0
-    var begin = false
+    if(batches.nonEmpty) {
+      val size = batches.head._1.size
+      val (b1, b2) = if (size == 1) {
+        batches.span { case (aw, _) => aw.size == 1 }
+      } else {
+        (List(batches.head), batches.tail)
+      }
 
-    batches.foreach { case (batch, p) =>
       try {
-        if (!begin) {
-          msgProducer.beginTransaction()
-        }
+        sendBatches(b1)
+      } catch {
+        case t:Throwable => log.error(t,"unable to send atomic batch")
+      }
+
+      writeBatchMessages(b2)
+    }
+  }
+
+  def sendBatches(bs:Seq[(AtomicWrite,Promise[Unit])]): Unit = {
+    var evtTrnBegin = false
+    var doCommit = true
+    msgProducer.beginTransaction()
+    val results = bs.map { case (batch, p) =>
+      try {
         val (recordMsgs, recordEvents) = buildRecords(batch.payload)
+
         recordMsgs.foreach { recordMsg =>
           sendFuture(msgProducer, recordMsg)
         }
-        if (i == batches.size - 1) {
-          msgProducer.commitTransaction()
-        }
+
         if (recordEvents.nonEmpty) {
-          if (!begin) {
+          if(!evtTrnBegin) {
             evtProducer.beginTransaction()
+            evtTrnBegin = true
           }
           recordEvents.foreach { recordMsg =>
             sendFuture(evtProducer, recordMsg)
           }
-          if (i == batches.size - 1) {
-            evtProducer.commitTransaction()
-          }
+
         }
-        p.success()
-        i = i + 1
-        begin = true
+        (Success(),p)
       } catch {
         case pfe: ProducerFencedException => log.error(pfe, "An error occurs")
           msgProducer.close()
           evtProducer.close()
           msgProducer = createMessageProducer(journalPath,index)
           evtProducer = createEventProducer(journalPath,index)
-          begin = false
-          p.failure(pfe)
-        case ke: KafkaException => log.error(ke, "An error occurs")
-          msgProducer.abortTransaction()
-          evtProducer.abortTransaction()
-          begin = false
-          p.failure(ke)
+          doCommit = false
+          (Failure(pfe),p)
         case e: Throwable => log.error(e, "An error occurs")
-          msgProducer.abortTransaction()
-          evtProducer.abortTransaction()
-          begin = false
-          p.failure(e)
+          doCommit = false
+          (Failure(e),p)
       }
     }
+    if(doCommit) {
+      msgProducer.commitTransaction()
+      if (evtTrnBegin) {
+        evtProducer.commitTransaction()
+      }
+    } else {
+      msgProducer.abortTransaction()
+      if (evtTrnBegin) {
+        evtProducer.abortTransaction()
+      }
+    }
+    results.foreach {case (r,p) => p.complete(r)}
   }
 
   override def postStop(): Unit = {
