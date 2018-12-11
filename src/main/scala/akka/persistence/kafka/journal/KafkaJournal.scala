@@ -1,5 +1,7 @@
 package akka.persistence.kafka.journal
 
+import java.io.NotSerializableException
+
 import scala.collection.immutable
 import scala.util.{Failure, Success, Try}
 import akka.persistence.journal.AsyncWriteJournal
@@ -170,50 +172,64 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
 
   def sendBatches(bs:Seq[(AtomicWrite,Promise[Unit])]): Unit = {
     var evtTrnBegin = false
+    // false: Error that abort the transaction
+    // true: No error during this batch. Commit the transaction
     var doCommit = true
     msgProducer.beginTransaction()
     val results = bs.map { case (batch, p) =>
       try {
-        val (recordMsgs, recordEvents) = buildRecords(batch.payload)
+        if(doCommit) { //An error occurs in this batch. We should not continue to send to kafka
+          val (recordMsgs, recordEvents) = buildRecords(batch.payload)
 
-        recordMsgs.foreach { recordMsg =>
-          sendFuture(msgProducer, recordMsg)
-        }
-
-        if (recordEvents.nonEmpty) {
-          if(!evtTrnBegin) {
-            evtProducer.beginTransaction()
-            evtTrnBegin = true
-          }
-          recordEvents.foreach { recordMsg =>
-            sendFuture(evtProducer, recordMsg)
+          recordMsgs.foreach { recordMsg =>
+            sendFuture(msgProducer, recordMsg)
           }
 
+          if (recordEvents.nonEmpty) {
+            if (!evtTrnBegin) {
+              evtProducer.beginTransaction()
+              evtTrnBegin = true
+            }
+            recordEvents.foreach { recordMsg =>
+              sendFuture(evtProducer, recordMsg)
+            }
+
+          }
+          (Success(),p)
+        } else {
+          (Failure(new IllegalStateException("A previous error make this batch as failed")),p)
         }
-        (Success(),p)
       } catch {
-        case pfe: ProducerFencedException => log.error(pfe, "An error occurs")
+        case pfe: ProducerFencedException => log.error(pfe, "An error occurs") //Should occur only once
           msgProducer.close()
           evtProducer.close()
+          //Recreate for the next batch
           msgProducer = createMessageProducer(journalPath,index)
           evtProducer = createEventProducer(journalPath,index)
           doCommit = false
           (Failure(pfe),p)
+        case nse:NotSerializableException => log.error(nse, "An error occurs")
+          (Failure(nse),p)
         case e: Throwable => log.error(e, "An error occurs")
           doCommit = false
           (Failure(e),p)
       }
     }
-    if(doCommit) {
-      msgProducer.commitTransaction()
-      if (evtTrnBegin) {
-        evtProducer.commitTransaction()
+
+    try {
+      if (doCommit) {
+        msgProducer.commitTransaction()
+        if (evtTrnBegin) {
+          evtProducer.commitTransaction()
+        }
+      } else {
+        msgProducer.abortTransaction()
+        if (evtTrnBegin) {
+          evtProducer.abortTransaction()
+        }
       }
-    } else {
-      msgProducer.abortTransaction()
-      if (evtTrnBegin) {
-        evtProducer.abortTransaction()
-      }
+    } catch {
+      case e:Throwable => log.error(e, "Unable to terminate the transaction")
     }
     results.foreach {case (r,p) => p.complete(r)}
   }
