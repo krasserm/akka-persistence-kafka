@@ -228,10 +228,12 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
           evtProducer.abortTransaction()
         }
       }
+      results.foreach {case (r,p) => p.complete(r)}
     } catch {
-      case e:Throwable => log.error(e, "Unable to terminate the transaction")
+      case e:Throwable =>
+        log.error(e, "Unable to terminate the transaction")
+        results.foreach {case (_,p) => p.failure(e)}
     }
-    results.foreach {case (r,p) => p.complete(r)}
   }
 
   override def postStop(): Unit = {
