@@ -12,13 +12,14 @@ import akka.actor._
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.persistence.kafka._
 import akka.persistence.kafka.journal.KafkaJournalProtocol._
+import com.sun.org.apache.xalan.internal.xsltc.compiler.util.ErrorMsg
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
-import org.apache.kafka.common.KafkaException
 import org.apache.kafka.common.errors.ProducerFencedException
 
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.collection.immutable.Seq
+import scala.util.control.NonFatal
 
 private case class SeqOfAtomicWritesPromises(messages: Seq[(AtomicWrite,Promise[Unit])])
 private case object CloseWriter
@@ -69,7 +70,18 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
       case (pid,aws) => writerFor(pid)!SeqOfAtomicWritesPromises(aws)
     }
 
-    Future.sequence(msgsWithPromises.map{ case (_, p) => p.future.map(Success(_)).recover{ case e => Failure(e)}})
+    val f = Future.sequence(msgsWithPromises.map{ case (_, p) => p.future.map(Success(_)).recover{ case e => Failure(e)}})
+    f.flatMap { results =>
+      val fatals = results.filter{_.isFailure}.filter {_.failed.get match {
+        case fwe:FatalWriterException => true
+        case _ => false
+      }}
+      if(fatals.nonEmpty) {
+        Future.failed(fatals.head.failed.get.getCause)
+      } else {
+        f
+      }
+    }
   }
 
   private def writerFor(persistenceId: String): ActorRef =
@@ -123,6 +135,7 @@ class KafkaJournal extends AsyncWriteJournal with MetadataConsumer with ActorLog
   }
 }
 
+private class FatalWriterException(exception:Throwable) extends Throwable(exception)
 
 private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJournalConfig,serialization:Serialization) extends Actor with ActorLogging {
   var msgProducer: KafkaProducer[String, Array[Byte]] = createMessageProducer(journalPath,index)
@@ -175,6 +188,9 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
     // false: Error that abort the transaction
     // true: No error during this batch. Commit the transaction
     var doCommit = true
+
+    var abortException:Option[Throwable] = None
+
     msgProducer.beginTransaction()
     val results = bs.map { case (batch, p) =>
       try {
@@ -197,7 +213,11 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
           }
           (Success(),p)
         } else {
-          (Failure(new IllegalStateException("A previous error make this batch as failed")),p)
+          abortException.fold[(Try[Unit],Promise[Unit])] {
+            (Success(),p)
+          } { exc =>
+            (Failure(exc),p)
+          }
         }
       } catch {
         case pfe: ProducerFencedException => log.error(pfe, "An error occurs") //Should occur only once
@@ -207,12 +227,14 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
           msgProducer = createMessageProducer(journalPath,index)
           evtProducer = createEventProducer(journalPath,index)
           doCommit = false
-          (Failure(pfe),p)
+          if(abortException.isEmpty) abortException = Some(pfe)
+          (Failure(new FatalWriterException(pfe)),p)
         case nse:NotSerializableException => log.error(nse, "An error occurs")
           (Failure(nse),p)
         case e: Throwable => log.error(e, "An error occurs")
           doCommit = false
-          (Failure(e),p)
+          if(abortException.isEmpty) abortException = Some(e)
+          (Failure(new FatalWriterException(e)),p)
       }
     }
 
@@ -232,7 +254,7 @@ private class KafkaJournalWriter(journalPath:String, index:Int,config: KafkaJour
     } catch {
       case e:Throwable =>
         log.error(e, "Unable to terminate the transaction")
-        results.foreach {case (_,p) => p.failure(e)}
+        results.foreach {case (_,p) => p.failure(new FatalWriterException(e))}
     }
   }
 

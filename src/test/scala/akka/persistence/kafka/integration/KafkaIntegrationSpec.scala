@@ -1,14 +1,17 @@
 package akka.persistence.kafka.integration
 
+import java.util.UUID
+
 import scala.collection.immutable.Seq
 import akka.actor._
+import akka.persistence.JournalProtocol.{WriteMessageSuccess, WriteMessages, WriteMessagesFailed, WriteMessagesSuccessful}
 import akka.persistence._
 import akka.persistence.SnapshotProtocol._
 import akka.persistence.kafka._
 import akka.persistence.kafka.journal.KafkaJournalConfig
 import akka.persistence.kafka.server._
 import akka.persistence.kafka.snapshot.KafkaSnapshotStoreConfig
-import akka.serialization.SerializationExtension
+import akka.serialization.{SerializationExtension, Serializer}
 import akka.testkit._
 import com.typesafe.config.{Config, ConfigFactory}
 import org.scalatest._
@@ -21,6 +24,17 @@ object KafkaIntegrationSpec {
       |akka.persistence.snapshot-store.plugin = "kafka-snapshot-store"
       |akka.test.single-expect-default = 20s
       |kafka-journal.event.producer.request.required.acks = 1
+      |akka {
+      |  actor {
+      |    serializers {
+      |      bad-event = "akka.persistence.kafka.integration.BadEventSerializer"
+      |    }
+      |
+      |    serialization-bindings {
+      |      "akka.persistence.kafka.integration.BadEvent" = bad-event
+      |    }
+      |  }
+      |}
     """.stripMargin)
 
   class TestPersistentActor(val persistenceId: String, probe: ActorRef) extends PersistentActor {
@@ -45,6 +59,18 @@ object KafkaIntegrationSpec {
         probe ! s
     }
   }*/
+}
+
+class BadEvent {}
+
+class BadEventSerializer extends Serializer {
+  override def identifier: Int = 35456
+
+  override def toBinary(o: AnyRef): Array[Byte] = throw new IllegalStateException("Unable to serialize. It's a bad event")
+
+  override def includeManifest: Boolean = false
+
+  override def fromBinary(bytes: Array[Byte], manifest: Option[Class[_]]): AnyRef = throw new IllegalStateException("Unable to deserialize. It's a bad event")
 }
 
 class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationSpec.config)) with ImplicitSender with WordSpecLike with Matchers with KafkaTest {
@@ -119,6 +145,24 @@ class KafkaIntegrationSpec extends TestKit(ActorSystem("test", KafkaIntegrationS
       val persistenceId = "x/y/z" // not a valid topic name
       writeJournal(persistenceId, Seq("a", "b", "c"))
       readJournal(journalTopic(persistenceId)).map(_.payload) should be(Seq("a", "b", "c"))
+    }
+    "consider a batch as failed on fatal exception" in {
+      val writerUuid = UUID.randomUUID.toString
+      val msgs = (1 to 10).map { i ⇒
+        val p = if(i==5) new BadEvent else s"b-$i"
+        PersistentRepr(payload = p, sequenceNr = i, persistenceId = "npe", sender = Actor.noSender,
+          writerUuid = writerUuid)
+      }
+
+      val probe = TestProbe()
+      journal ! WriteMessages(Seq(AtomicWrite(msgs)), probe.ref, 1)
+
+
+      probe.expectMsgPF() {
+        case wmf:WriteMessagesFailed =>
+          wmf.cause.isInstanceOf[IllegalStateException] shouldBe true
+          wmf.cause.getMessage shouldBe "Unable to serialize. It's a bad event"
+      }
     }
   }
 
